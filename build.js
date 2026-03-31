@@ -18,6 +18,10 @@ async function buildRenderer() {
     }
     fs.writeFileSync('dist/renderer/styles.css', result.css);
 
+    // 复制 index.html
+    const htmlContent = fs.readFileSync('src/renderer/index.html', 'utf8');
+    fs.writeFileSync('dist/renderer/index.html', htmlContent);
+
     await esbuild.build({
       entryPoints: ['src/renderer/src/index.tsx'],
       bundle: true,
@@ -46,7 +50,7 @@ async function buildMain() {
   try {
     await esbuild.build({
       entryPoints: ['src/main/index.ts', 'src/main/preload.ts'],
-      bundle: false,
+      bundle: true,
       outdir: 'dist/main',
       platform: 'node',
       format: 'cjs',
@@ -54,6 +58,7 @@ async function buildMain() {
         '.ts': 'ts',
       },
       sourcemap: true,
+      external: ['electron', 'better-sqlite3'],
     });
     console.log('Main process build complete!');
   } catch (err) {

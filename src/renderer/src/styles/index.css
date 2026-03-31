@@ -77,6 +77,18 @@
   transition: all 150ms ease;
 }
 
+.search-input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  padding-left: 2.5rem;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  color: #111827;
+  transition: all 150ms ease;
+}
+
 .input-base::placeholder {
   color: #9ca3af;
 }
@@ -117,6 +129,7 @@
   max-width: 32rem;
   max-height: 90vh;
   overflow-y: auto;
+  overflow-x: hidden;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 

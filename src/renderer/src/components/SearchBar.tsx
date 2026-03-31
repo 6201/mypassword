@@ -21,7 +21,7 @@ const SearchBar: React.FC<Props> = ({ value, onChange }) => {
         placeholder="搜索密码..."
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="input-base pl-10 pr-8"
+        className="search-input"
       />
       {value && (
         <button

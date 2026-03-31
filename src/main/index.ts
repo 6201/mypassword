@@ -1,15 +1,19 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import path from 'path';
 import { initDatabase, Database } from './database';
 import { encrypt, decrypt, generateKey } from './crypto';
 import { generatePassword } from './password-generator';
 import { encryptExportData, decryptExportData, generateExportFilename, ExportData } from './export-import';
+import { parseOnePasswordCSV, parseOnePassword1PIF } from './onepassword-importer';
 import * as fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
 let db: Database | null = null;
 
 function createWindow() {
+  // 隐藏默认菜单栏
+  Menu.setApplicationMenu(null);
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -155,6 +159,59 @@ ipcMain.handle('import-data', async (_, importPassword: string, mergeMode: 'skip
     if (error.message.includes('ECONNRESET') || error.code === 'ERR_CRYPTO') {
       return { success: false, error: '密码错误或文件已损坏' };
     }
+    return { success: false, error: error.message };
+  }
+});
+
+// 1Password 导入处理
+ipcMain.handle('import-from-1password', async () => {
+  if (!db) {
+    return { success: false, error: '数据库未初始化' };
+  }
+
+  try {
+    // 选择要导入的文件
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: '选择 1Password 导出文件',
+      filters: [
+        { name: '1Password CSV', extensions: ['csv'] },
+        { name: '1Password 1PIF', extensions: ['1pif'] },
+        { name: '所有文件', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true };
+    }
+
+    const filePath = result.filePaths[0];
+    const fileContent = fs.readFileSync(filePath, 'utf-8');
+    const ext = path.extname(filePath).toLowerCase();
+
+    // 根据文件格式解析
+    let entries: any[] = [];
+    if (ext === '.csv') {
+      entries = parseOnePasswordCSV(fileContent);
+    } else if (ext === '.1pif') {
+      entries = parseOnePassword1PIF(fileContent);
+    } else {
+      return { success: false, error: '不支持的文件格式，请使用 CSV 或 1PIF 格式' };
+    }
+
+    if (entries.length === 0) {
+      return { success: false, error: '文件中没有找到有效的密码数据' };
+    }
+
+    // 导入数据
+    const importResult = db.importPasswords(entries, 'skip');
+
+    return {
+      success: true,
+      ...importResult,
+      filename: path.basename(filePath)
+    };
+  } catch (error: any) {
     return { success: false, error: error.message };
   }
 });

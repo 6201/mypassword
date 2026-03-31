@@ -46,7 +46,7 @@ const PasswordForm: React.FC<Props> = ({ editData, onClose, onSubmit }) => {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
+      <div className="modal-content rounded-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">
             {editData ? '编辑密码' : '添加密码'}

@@ -1,0 +1,13 @@
+{
+  "name": "mypassword",
+  "version": "1.0.0",
+  "description": "密码管理工具",
+  "main": "dist/main/index.js",
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  }
+}

@@ -17,6 +17,7 @@ declare global {
       searchPasswords: (query: string) => Promise<any[]>;
       exportData: (exportPassword: string) => Promise<any>;
       importData: (importPassword: string, mergeMode: 'skip' | 'overwrite' | 'rename') => Promise<any>;
+      importFrom1Password: () => Promise<any>;
     };
   }
 }

@@ -40,5 +40,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportData: (exportPassword: string) =>
     ipcRenderer.invoke('export-data', exportPassword),
   importData: (importPassword: string, mergeMode: 'skip' | 'overwrite' | 'rename') =>
-    ipcRenderer.invoke('import-data', importPassword, mergeMode)
+    ipcRenderer.invoke('import-data', importPassword, mergeMode),
+  // 1Password 导入
+  importFrom1Password: () =>
+    ipcRenderer.invoke('import-from-1password')
 });

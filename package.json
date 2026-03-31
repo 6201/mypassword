@@ -20,7 +20,12 @@
     },
     "files": [
       "dist/**/*",
+      "node_modules/better-sqlite3/**/*",
       "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
     ],
     "win": {
       "target": [
