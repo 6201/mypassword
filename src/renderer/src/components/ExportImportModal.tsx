@@ -129,81 +129,37 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
     padding: '0.75rem 1.5rem',
     fontSize: '0.875rem',
     fontWeight: 500,
-    color: active ? 'var(--primary-600)' : 'var(--gray-600)',
-    backgroundColor: active ? 'var(--primary-50)' : 'transparent',
+    color: active ? 'var(--color-primary-600)' : '#4b5563',
+    backgroundColor: active ? 'var(--color-primary-50)' : 'transparent',
     border: 'none',
-    borderBottom: active ? '2px solid var(--primary-500)' : '2px solid transparent',
+    borderBottom: active ? '2px solid var(--color-primary-500)' : '2px solid transparent',
     cursor: 'pointer',
     transition: 'all 150ms ease'
   });
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '0.625rem 0.75rem',
-    backgroundColor: 'var(--gray-50)',
-    border: '1px solid var(--gray-200)',
-    borderRadius: '0.5rem',
-    fontSize: '0.875rem',
-    color: 'var(--gray-900)'
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    color: 'var(--gray-700)',
-    marginBottom: '0.375rem'
-  };
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div style={{
-          padding: '1rem 1.5rem',
-          borderBottom: '1px solid var(--gray-200)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--gray-900)' }}>
-            数据备份与恢复
-          </h2>
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-gray-900">数据备份与恢复</h2>
           <button
             onClick={onClose}
-            style={{
-              padding: '0.5rem',
-              color: 'var(--gray-400)',
-              backgroundColor: 'transparent',
-              border: 'none',
-              borderRadius: '0.5rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = 'var(--gray-600)';
-              e.currentTarget.style.backgroundColor = 'var(--gray-100)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--gray-400)';
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* 选项卡 */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--gray-200)', paddingHorizontal: '1.5rem' }}>
+        <div className="flex border-b border-gray-200 px-6">
           <button
             onClick={() => { setActiveTab('export'); setExportResult(null); setImportResult(null); setOnePasswordResult(null); }}
             style={tabStyle(activeTab === 'export')}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <span className="inline-flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
               导出数据
@@ -213,8 +169,8 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
             onClick={() => { setActiveTab('import'); setExportResult(null); setImportResult(null); setOnePasswordResult(null); }}
             style={tabStyle(activeTab === 'import')}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <span className="inline-flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               导入数据
@@ -224,8 +180,8 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
             onClick={() => { setActiveTab('1password'); setExportResult(null); setImportResult(null); setOnePasswordResult(null); }}
             style={tabStyle(activeTab === '1password')}
           >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-              <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <span className="inline-flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
               1Password 导入
@@ -235,53 +191,50 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
 
         {/* 导出面板 */}
         {activeTab === 'export' && (
-          <div style={{ padding: '1.5rem', display: 'grid', gap: '1.25rem' }}>
-            <div style={{ padding: '1rem', backgroundColor: 'var(--amber-50)', borderRadius: '0.5rem', border: '1px solid var(--amber-100)' }}>
-              <p style={{ fontSize: '0.875rem', color: 'var(--amber-800)', lineHeight: 1.6 }}>
+          <div className="p-6 grid gap-5">
+            <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+              <p className="text-sm text-amber-800 leading-relaxed">
                 <strong>注意：</strong>导出的文件包含您的所有密码数据（加密存储），请妥善保管。
                 建议将备份文件存储到安全的位置（如加密的 U 盘或私有云盘）。
               </p>
             </div>
 
             <div>
-              <label style={labelStyle}>加密密码</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">加密密码</label>
               <input
                 type="password"
                 value={exportPassword}
                 onChange={e => setExportPassword(e.target.value)}
-                style={inputStyle}
+                className="input-base"
                 placeholder="设置一个密码来加密备份文件"
               />
-              <p style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginTop: '0.375rem' }}>
+              <p className="text-xs text-gray-500 mt-1.5">
                 此密码用于加密备份文件，导入时需要输入相同的密码
               </p>
             </div>
 
             <div>
-              <label style={labelStyle}>确认密码</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">确认密码</label>
               <input
                 type="password"
                 value={exportConfirm}
                 onChange={e => setExportConfirm(e.target.value)}
-                style={inputStyle}
+                className="input-base"
                 placeholder="再次输入密码"
               />
             </div>
 
             {exportResult && (
-              <div style={{
-                padding: '0.75rem 1rem',
-                borderRadius: '0.5rem',
-                fontSize: '0.875rem',
-                backgroundColor: exportResult.success ? 'var(--emerald-50)' : 'var(--red-50)',
-                color: exportResult.success ? 'var(--emerald-700)' : 'var(--red-700)',
-                border: `1px solid ${exportResult.success ? 'var(--emerald-100)' : 'var(--red-100)'}`
-              }}>
+              <div className={`px-4 py-3 rounded-lg text-sm border ${
+                exportResult.success
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                  : 'bg-red-50 text-red-700 border-red-100'
+              }`}>
                 {exportResult.message}
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.5rem' }}>
+            <div className="flex justify-end gap-3 pt-2">
               <button onClick={onClose} className="btn-secondary">取消</button>
               <button
                 onClick={handleExport}
@@ -297,87 +250,67 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
 
         {/* 导入面板 */}
         {activeTab === 'import' && (
-          <div style={{ padding: '1.5rem', display: 'grid', gap: '1.25rem' }}>
-            <div style={{ padding: '1rem', backgroundColor: 'var(--blue-50, #eff6ff)', borderRadius: '0.5rem', border: '1px solid var(--blue-100, #dbeafe)' }}>
-              <p style={{ fontSize: '0.875rem', color: '#1e40af', lineHeight: 1.6 }}>
+          <div className="p-6 grid gap-5">
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+              <p className="text-sm text-blue-800 leading-relaxed">
                 <strong>注意：</strong>导入操作会将备份文件中的数据合并到当前数据库。
                 如有重复条目，可选择跳过、覆盖或重命名。
               </p>
             </div>
 
             <div>
-              <label style={labelStyle}>备份密码</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">备份密码</label>
               <input
                 type="password"
                 value={importPassword}
                 onChange={e => setImportPassword(e.target.value)}
-                style={inputStyle}
+                className="input-base"
                 placeholder="输入创建备份时设置的密码"
+                autoFocus
               />
             </div>
 
             <div>
-              <label style={labelStyle}>重复数据处理方式</label>
-              <div style={{ display: 'grid', gap: '0.75rem' }}>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  padding: '0.75rem',
-                  borderRadius: '0.5rem',
-                  border: '1px solid var(--gray-200)',
-                  cursor: 'pointer',
-                  backgroundColor: mergeMode === 'skip' ? 'var(--primary-50)' : 'transparent'
-                }}>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">重复数据处理方式</label>
+              <div className="grid gap-3">
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
+                  mergeMode === 'skip' ? 'border-primary-300 bg-primary-50' : 'border-gray-200'
+                }`}>
                   <input
                     type="radio"
                     checked={mergeMode === 'skip'}
                     onChange={() => setMergeMode('skip')}
-                    style={{ width: '1rem', height: '1rem', color: 'var(--primary-500)' }}
+                    className="w-4 h-4 text-primary-500"
                   />
-                  <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>
+                  <span className="text-sm text-gray-700">
                     <strong>跳过重复</strong> - 如果条目已存在，跳过不导入
                   </span>
                 </label>
 
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  padding: '0.75rem',
-                  borderRadius: '0.5rem',
-                  border: '1px solid var(--gray-200)',
-                  cursor: 'pointer',
-                  backgroundColor: mergeMode === 'overwrite' ? 'var(--primary-50)' : 'transparent'
-                }}>
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
+                  mergeMode === 'overwrite' ? 'border-primary-300 bg-primary-50' : 'border-gray-200'
+                }`}>
                   <input
                     type="radio"
                     checked={mergeMode === 'overwrite'}
                     onChange={() => setMergeMode('overwrite')}
-                    style={{ width: '1rem', height: '1rem', color: 'var(--primary-500)' }}
+                    className="w-4 h-4 text-primary-500"
                   />
-                  <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>
+                  <span className="text-sm text-gray-700">
                     <strong>覆盖重复</strong> - 用备份中的数据覆盖现有条目
                   </span>
                 </label>
 
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.75rem',
-                  padding: '0.75rem',
-                  borderRadius: '0.5rem',
-                  border: '1px solid var(--gray-200)',
-                  cursor: 'pointer',
-                  backgroundColor: mergeMode === 'rename' ? 'var(--primary-50)' : 'transparent'
-                }}>
+                <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${
+                  mergeMode === 'rename' ? 'border-primary-300 bg-primary-50' : 'border-gray-200'
+                }`}>
                   <input
                     type="radio"
                     checked={mergeMode === 'rename'}
                     onChange={() => setMergeMode('rename')}
-                    style={{ width: '1rem', height: '1rem', color: 'var(--primary-500)' }}
+                    className="w-4 h-4 text-primary-500"
                   />
-                  <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>
+                  <span className="text-sm text-gray-700">
                     <strong>重命名</strong> - 为重复条目添加后缀后作为新条目导入
                   </span>
                 </label>
@@ -385,19 +318,16 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
             </div>
 
             {importResult && (
-              <div style={{
-                padding: '0.75rem 1rem',
-                borderRadius: '0.5rem',
-                fontSize: '0.875rem',
-                backgroundColor: importResult.success ? 'var(--emerald-50)' : 'var(--red-50)',
-                color: importResult.success ? 'var(--emerald-700)' : 'var(--red-700)',
-                border: `1px solid ${importResult.success ? 'var(--emerald-100)' : 'var(--red-100)'}`
-              }}>
+              <div className={`px-4 py-3 rounded-lg text-sm border ${
+                importResult.success
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                  : 'bg-red-50 text-red-700 border-red-100'
+              }`}>
                 {importResult.message}
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.5rem' }}>
+            <div className="flex justify-end gap-3 pt-2">
               <button onClick={onClose} className="btn-secondary">取消</button>
               <button
                 onClick={handleImport}
@@ -413,40 +343,37 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
 
         {/* 1Password 导入面板 */}
         {activeTab === '1password' && (
-          <div style={{ padding: '1.5rem', display: 'grid', gap: '1.25rem' }}>
-            <div style={{ padding: '1rem', backgroundColor: 'var(--blue-50, #eff6ff)', borderRadius: '0.5rem', border: '1px solid var(--blue-100, #dbeafe)' }}>
-              <p style={{ fontSize: '0.875rem', color: '#1e40af', lineHeight: 1.6 }}>
+          <div className="p-6 grid gap-5">
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+              <p className="text-sm text-blue-800 leading-relaxed">
                 <strong>支持的格式：</strong>
               </p>
-              <ul style={{ fontSize: '0.875rem', color: '#1e40af', lineHeight: 1.8, marginTop: '0.5rem', marginLeft: '1rem' }}>
+              <ul className="text-sm text-blue-800 leading-relaxed mt-2 ml-4 list-disc">
                 <li><strong>CSV 格式</strong> - 从 1Password 导出的 CSV 文件</li>
                 <li><strong>1PIF 格式</strong> - 从 1Password 导出的 1PIF 文件</li>
               </ul>
-              <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.75rem' }}>
+              <p className="text-xs text-gray-500 mt-3">
                 提示：在 1Password 中选择"文件 → 导出"来导出数据
               </p>
             </div>
 
-            <div style={{ padding: '1rem', backgroundColor: 'var(--amber-50)', borderRadius: '0.5rem', border: '1px solid var(--amber-100)' }}>
-              <p style={{ fontSize: '0.875rem', color: 'var(--amber-800)', lineHeight: 1.6 }}>
+            <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+              <p className="text-sm text-amber-800 leading-relaxed">
                 <strong>注意：</strong>导入的重复条目将被跳过。如需更新现有条目，请先删除或手动编辑。
               </p>
             </div>
 
             {onePasswordResult && (
-              <div style={{
-                padding: '0.75rem 1rem',
-                borderRadius: '0.5rem',
-                fontSize: '0.875rem',
-                backgroundColor: onePasswordResult.success ? 'var(--emerald-50)' : 'var(--red-50)',
-                color: onePasswordResult.success ? 'var(--emerald-700)' : 'var(--red-700)',
-                border: `1px solid ${onePasswordResult.success ? 'var(--emerald-100)' : 'var(--red-100)'}`
-              }}>
+              <div className={`px-4 py-3 rounded-lg text-sm border ${
+                onePasswordResult.success
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                  : 'bg-red-50 text-red-700 border-red-100'
+              }`}>
                 {onePasswordResult.message}
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', paddingTop: '0.5rem' }}>
+            <div className="flex justify-end gap-3 pt-2">
               <button onClick={onClose} className="btn-secondary">取消</button>
               <button
                 onClick={handleOnePasswordImport}

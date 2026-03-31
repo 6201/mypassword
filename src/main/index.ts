@@ -16,6 +16,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: 'MyPassword',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

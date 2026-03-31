@@ -1,0 +1,57 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="56" x2="432" y2="456" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#4338CA"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="190" y1="126" x2="300" y2="236" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#CBD5E1"/>
+    </linearGradient>
+    <linearGradient id="key1" x1="236" y1="206" x2="378" y2="350" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#D1D5DB"/>
+    </linearGradient>
+    <linearGradient id="key2" x1="206" y1="224" x2="330" y2="358" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF2FF"/>
+      <stop offset="1" stop-color="#C7D2FE"/>
+    </linearGradient>
+    <linearGradient id="key3" x1="260" y1="226" x2="360" y2="336" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E2E8F0"/>
+      <stop offset="1" stop-color="#94A3B8"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#bg)"/>
+
+  <g transform="translate(256 256) rotate(-16) translate(-256 -256)">
+    <!-- key ring -->
+    <circle cx="236" cy="188" r="70" fill="none" stroke="url(#ring)" stroke-width="28"/>
+    <circle cx="236" cy="188" r="31" fill="none" stroke="#E5E7EB" stroke-width="10"/>
+
+    <!-- front key -->
+    <g>
+      <circle cx="236" cy="188" r="31" fill="none" stroke="url(#key1)" stroke-width="22"/>
+      <path d="M257 207L370 320C377 327 377 338 370 345L355 360C348 367 337 367 330 360L217 247L257 207Z" fill="url(#key1)"/>
+      <rect x="327" y="333" width="22" height="44" rx="5" fill="#CBD5E1"/>
+      <rect x="345" y="316" width="20" height="36" rx="5" fill="#CBD5E1"/>
+      <rect x="360" y="300" width="17" height="28" rx="4" fill="#CBD5E1"/>
+    </g>
+
+    <!-- left/back key -->
+    <g transform="translate(236 188) rotate(44) translate(-236 -188)">
+      <circle cx="236" cy="188" r="24" fill="none" stroke="url(#key2)" stroke-width="16"/>
+      <path d="M252 201L341 290C347 296 347 306 341 312L329 324C323 330 313 330 307 324L218 235L252 201Z" fill="url(#key2)"/>
+      <rect x="307" y="302" width="17" height="33" rx="4" fill="#A5B4FC"/>
+      <rect x="321" y="289" width="15" height="27" rx="4" fill="#A5B4FC"/>
+    </g>
+
+    <!-- right/back key -->
+    <g transform="translate(236 188) rotate(-56) translate(-236 -188)">
+      <circle cx="236" cy="188" r="21" fill="none" stroke="url(#key3)" stroke-width="14"/>
+      <path d="M249 199L323 273C328 278 328 286 323 291L313 301C308 306 300 306 295 301L221 227L249 199Z" fill="url(#key3)"/>
+      <rect x="296" y="279" width="14" height="26" rx="3.5" fill="#94A3B8"/>
+      <rect x="307" y="268" width="12" height="21" rx="3" fill="#94A3B8"/>
+    </g>
+  </g>
+</svg>

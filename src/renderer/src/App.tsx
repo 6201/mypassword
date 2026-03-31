@@ -29,7 +29,13 @@ declare global {
 const DEFAULT_CATEGORY = 'Default';
 const ALL_CATEGORY = 'All';
 
+type CategoryDialogMode = 'add' | 'rename';
+
 const normalizeCategory = (value: string): string => value.trim().toLowerCase();
+
+function getCategoryDialogActionError(mode: CategoryDialogMode | null): string {
+  return mode === 'add' ? '添加分类失败' : '重命名分类失败';
+}
 
 const App: React.FC = () => {
   const [passwords, setPasswords] = useState<any[]>([]);
@@ -40,6 +46,10 @@ const App: React.FC = () => {
   const [showExportImport, setShowExportImport] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [categories, setCategories] = useState<string[]>([DEFAULT_CATEGORY]);
+  const [categoryDialogMode, setCategoryDialogMode] = useState<CategoryDialogMode | null>(null);
+  const [categoryInput, setCategoryInput] = useState('');
+  const [categoryEditingTarget, setCategoryEditingTarget] = useState<string | null>(null);
+  const [categoryDialogError, setCategoryDialogError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -124,50 +134,76 @@ const App: React.FC = () => {
     setShowForm(true);
   };
 
-  const handleAddCategory = async () => {
-    const name = prompt('请输入新分类名称');
-    if (name === null) {
-      return;
-    }
+  function closeCategoryDialog(): void {
+    setCategoryDialogMode(null);
+    setCategoryInput('');
+    setCategoryEditingTarget(null);
+    setCategoryDialogError('');
+  }
 
-    const normalizedName = name.trim();
+  function openCategoryDialog(mode: CategoryDialogMode, category = ''): void {
+    setCategoryDialogMode(mode);
+    if (mode === 'add') {
+      setCategoryEditingTarget(null);
+      setCategoryInput('');
+    } else {
+      setCategoryEditingTarget(category);
+      setCategoryInput(category);
+    }
+    setCategoryDialogError('');
+  }
+
+  function openAddCategoryDialog(): void {
+    openCategoryDialog('add');
+  }
+
+  function openRenameCategoryDialog(category: string): void {
+    openCategoryDialog('rename', category);
+  }
+
+  function handleCategoryInputChange(event: React.ChangeEvent<HTMLInputElement>): void {
+    setCategoryInput(event.target.value);
+    if (categoryDialogError) {
+      setCategoryDialogError('');
+    }
+  }
+
+  const handleSubmitCategoryDialog: React.ComponentProps<'form'>['onSubmit'] = async event => {
+    event.preventDefault();
+
+    const normalizedName = categoryInput.trim();
     if (!normalizedName) {
-      alert('分类名称不能为空');
+      setCategoryDialogError('分类名称不能为空');
       return;
     }
 
     try {
-      await window.electronAPI.addCategory(normalizedName);
+      if (categoryDialogMode === 'add') {
+        await window.electronAPI.addCategory(normalizedName);
+        await loadData();
+        setSelectedCategory(normalizedName);
+        closeCategoryDialog();
+        return;
+      }
+
+      if (categoryDialogMode !== 'rename' || !categoryEditingTarget) {
+        setCategoryDialogError('分类操作失败');
+        return;
+      }
+
+      if (normalizedName === categoryEditingTarget) {
+        closeCategoryDialog();
+        return;
+      }
+
+      await window.electronAPI.renameCategory(categoryEditingTarget, normalizedName);
       await loadData();
-      setSelectedCategory(normalizedName);
-    } catch (error: any) {
-      alert(error?.message || '添加分类失败');
-    }
-  };
-
-  const handleRenameCategory = async (category: string) => {
-    const nextName = prompt('请输入新的分类名称', category);
-    if (nextName === null) {
-      return;
-    }
-
-    const normalizedName = nextName.trim();
-    if (!normalizedName) {
-      alert('分类名称不能为空');
-      return;
-    }
-    if (normalizedName === category) {
-      return;
-    }
-
-    try {
-      await window.electronAPI.renameCategory(category, normalizedName);
-      await loadData();
-      if (selectedCategory === category) {
+      if (selectedCategory === categoryEditingTarget) {
         setSelectedCategory(normalizedName);
       }
+      closeCategoryDialog();
     } catch (error: any) {
-      alert(error?.message || '重命名分类失败');
+      setCategoryDialogError(error?.message || getCategoryDialogActionError(categoryDialogMode));
     }
   };
 
@@ -203,14 +239,17 @@ const App: React.FC = () => {
     return matchesCategory && matchesSearch;
   });
 
+  const categoryDialogTitle = categoryDialogMode === 'add' ? '添加分类' : '重命名分类';
+  const categoryDialogSubmitText = categoryDialogMode === 'add' ? '添加' : '保存';
+
   return (
     <div className="flex h-screen bg-gray-50">
       <CategoryNav
         categories={navCategories}
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
-        onAddCategory={handleAddCategory}
-        onEditCategory={handleRenameCategory}
+        onAddCategory={openAddCategoryDialog}
+        onEditCategory={openRenameCategoryDialog}
         onDeleteCategory={handleDeleteCategory}
       />
 
@@ -274,6 +313,59 @@ const App: React.FC = () => {
         <ExportImportModal
           onClose={() => setShowExportImport(false)}
         />
+      )}
+
+      {categoryDialogMode && (
+        <div className="modal-overlay" onClick={closeCategoryDialog}>
+          <div
+            className="modal-content max-w-md"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900">
+                {categoryDialogTitle}
+              </h3>
+              <button
+                type="button"
+                onClick={closeCategoryDialog}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="关闭"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitCategoryDialog} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  分类名称
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={categoryInput}
+                  onChange={handleCategoryInputChange}
+                  className="input-base"
+                  placeholder="请输入分类名称"
+                />
+                {categoryDialogError && (
+                  <p className="mt-1.5 text-xs text-red-600">{categoryDialogError}</p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button type="button" onClick={closeCategoryDialog} className="btn-secondary">
+                  取消
+                </button>
+                <button type="submit" className="btn-primary">
+                  {categoryDialogSubmitText}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
