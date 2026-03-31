@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import PasswordGenerator from './PasswordGenerator';
 
 interface PasswordEntry {
   title: string;
@@ -13,11 +14,12 @@ interface PasswordEntry {
 
 interface Props {
   editData?: PasswordEntry;
+  categories: string[];
   onClose: () => void;
   onSubmit: (entry: PasswordEntry) => Promise<void>;
 }
 
-const PasswordForm: React.FC<Props> = ({ editData, onClose, onSubmit }) => {
+const PasswordForm: React.FC<Props> = ({ editData, categories, onClose, onSubmit }) => {
   const [formData, setFormData] = useState<PasswordEntry>({
     title: '',
     username: '',
@@ -28,15 +30,42 @@ const PasswordForm: React.FC<Props> = ({ editData, onClose, onSubmit }) => {
     tags: '',
     favorite: false
   });
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [showGenerator, setShowGenerator] = useState(false);
+
+  const availableCategories = useMemo(
+    () => (categories.length > 0 ? categories : ['Default']),
+    [categories]
+  );
 
   useEffect(() => {
     if (editData) {
-      setFormData(editData);
+      const nextCategory = availableCategories.includes(editData.category || '')
+        ? editData.category
+        : 'Default';
+
+      setFormData({ ...editData, category: nextCategory });
+      setConfirmPassword(editData.password || '');
+      setPasswordError('');
+      return;
     }
-  }, [editData]);
+
+    setFormData(prev => ({
+      ...prev,
+      category: availableCategories.includes(prev.category || '') ? prev.category : 'Default'
+    }));
+  }, [editData, availableCategories]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (formData.password !== confirmPassword) {
+      setPasswordError('两次输入的密码不一致');
+      return;
+    }
+
+    setPasswordError('');
     onSubmit(formData);
   };
 
@@ -98,14 +127,57 @@ const PasswordForm: React.FC<Props> = ({ editData, onClose, onSubmit }) => {
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
               密码 <span className="text-red-500">*</span>
             </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={formData.password}
+                onChange={e => {
+                  const value = e.target.value;
+                  handleChange('password', value);
+                  if (confirmPassword && value !== confirmPassword) {
+                    setPasswordError('两次输入的密码不一致');
+                  } else {
+                    setPasswordError('');
+                  }
+                }}
+                required
+                className="input-base font-mono"
+                placeholder="输入密码"
+              />
+              <button
+                type="button"
+                onClick={() => setShowGenerator(true)}
+                className="btn-secondary shrink-0"
+                title="自动生成密码"
+              >
+                生成
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              确认密码 <span className="text-red-500">*</span>
+            </label>
             <input
-              type="text"
-              value={formData.password}
-              onChange={e => handleChange('password', e.target.value)}
+              type="password"
+              value={confirmPassword}
+              onChange={e => {
+                const value = e.target.value;
+                setConfirmPassword(value);
+                if (formData.password && formData.password !== value) {
+                  setPasswordError('两次输入的密码不一致');
+                } else {
+                  setPasswordError('');
+                }
+              }}
               required
               className="input-base font-mono"
-              placeholder="输入密码"
+              placeholder="再次输入密码"
             />
+            {passwordError && (
+              <p className="mt-1.5 text-xs text-red-600">{passwordError}</p>
+            )}
           </div>
 
           <div>
@@ -126,13 +198,17 @@ const PasswordForm: React.FC<Props> = ({ editData, onClose, onSubmit }) => {
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
                 分类
               </label>
-              <input
-                type="text"
-                value={formData.category}
+              <select
+                value={formData.category || 'Default'}
                 onChange={e => handleChange('category', e.target.value)}
                 className="input-base"
-                placeholder="例如：工作"
-              />
+              >
+                {availableCategories.map(category => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -178,12 +254,27 @@ const PasswordForm: React.FC<Props> = ({ editData, onClose, onSubmit }) => {
             <button type="button" onClick={onClose} className="btn-secondary">
               取消
             </button>
-            <button type="submit" className="btn-primary">
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={!formData.password || !confirmPassword || formData.password !== confirmPassword}
+            >
               {editData ? '保存' : '添加'}
             </button>
           </div>
         </form>
       </div>
+
+      {showGenerator && (
+        <PasswordGenerator
+          onClose={() => setShowGenerator(false)}
+          onUsePassword={(password) => {
+            handleChange('password', password);
+            setConfirmPassword(password);
+            setPasswordError('');
+          }}
+        />
+      )}
     </div>
   );
 };

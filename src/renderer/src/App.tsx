@@ -10,6 +10,10 @@ declare global {
   interface Window {
     electronAPI: {
       getPasswords: () => Promise<any[]>;
+      getCategories: () => Promise<string[]>;
+      addCategory: (name: string) => Promise<void>;
+      renameCategory: (oldName: string, newName: string) => Promise<void>;
+      deleteCategory: (name: string) => Promise<{ movedCount: number }>;
       addPassword: (entry: any) => Promise<number>;
       updatePassword: (id: number, entry: any) => Promise<void>;
       deletePassword: (id: number) => Promise<void>;
@@ -22,31 +26,81 @@ declare global {
   }
 }
 
+const DEFAULT_CATEGORY = 'Default';
+const ALL_CATEGORY = 'All';
+
+const normalizeCategory = (value: string): string => value.trim().toLowerCase();
+
 const App: React.FC = () => {
   const [passwords, setPasswords] = useState<any[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORY);
   const [searchQuery, setSearchQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [categories, setCategories] = useState<string[]>(['All']);
+  const [categories, setCategories] = useState<string[]>([DEFAULT_CATEGORY]);
 
   useEffect(() => {
-    loadPasswords();
+    loadData();
   }, []);
 
-  const loadPasswords = async () => {
-    const data = await window.electronAPI.getPasswords();
-    setPasswords(data || []);
-    const cats = ['All', ...Array.from(new Set((data || []).map((p: any) => p.category).filter(Boolean)))];
-    setCategories(cats);
+  useEffect(() => {
+    if (selectedCategory === ALL_CATEGORY) {
+      return;
+    }
+
+    const matchedCategory = categories.find(
+      category => normalizeCategory(category) === normalizeCategory(selectedCategory)
+    );
+
+    if (!matchedCategory) {
+      setSelectedCategory(ALL_CATEGORY);
+      return;
+    }
+
+    if (matchedCategory !== selectedCategory) {
+      setSelectedCategory(matchedCategory);
+    }
+  }, [categories, selectedCategory]);
+
+  const normalizeCategories = (source: string[]): string[] => {
+    const unique = new Map<string, string>();
+
+    for (const rawCategory of source || []) {
+      const category = (rawCategory || '').trim();
+      if (!category || normalizeCategory(category) === normalizeCategory(ALL_CATEGORY)) {
+        continue;
+      }
+      const key = normalizeCategory(category);
+      if (!unique.has(key)) {
+        unique.set(key, category);
+      }
+    }
+
+    if (!unique.has(normalizeCategory(DEFAULT_CATEGORY))) {
+      unique.set(normalizeCategory(DEFAULT_CATEGORY), DEFAULT_CATEGORY);
+    }
+
+    return Array.from(unique.values()).sort((a, b) =>
+      a.localeCompare(b, 'zh-CN', { sensitivity: 'base' })
+    );
+  };
+
+  const loadData = async () => {
+    const [passwordData, categoryData] = await Promise.all([
+      window.electronAPI.getPasswords(),
+      window.electronAPI.getCategories()
+    ]);
+
+    setPasswords(passwordData || []);
+    setCategories(normalizeCategories(categoryData || []));
   };
 
   const handleAddPassword = async (entry: any) => {
     await window.electronAPI.addPassword(entry);
     setShowForm(false);
-    loadPasswords();
+    loadData();
   };
 
   const handleUpdatePassword = async (entry: any) => {
@@ -54,14 +108,14 @@ const App: React.FC = () => {
       await window.electronAPI.updatePassword(editingId, entry);
       setEditingId(null);
       setShowForm(false);
-      loadPasswords();
+      loadData();
     }
   };
 
   const handleDeletePassword = async (id: number) => {
     if (confirm('确定要删除这个密码吗？')) {
       await window.electronAPI.deletePassword(id);
-      loadPasswords();
+      loadData();
     }
   };
 
@@ -70,8 +124,79 @@ const App: React.FC = () => {
     setShowForm(true);
   };
 
+  const handleAddCategory = async () => {
+    const name = prompt('请输入新分类名称');
+    if (name === null) {
+      return;
+    }
+
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      alert('分类名称不能为空');
+      return;
+    }
+
+    try {
+      await window.electronAPI.addCategory(normalizedName);
+      await loadData();
+      setSelectedCategory(normalizedName);
+    } catch (error: any) {
+      alert(error?.message || '添加分类失败');
+    }
+  };
+
+  const handleRenameCategory = async (category: string) => {
+    const nextName = prompt('请输入新的分类名称', category);
+    if (nextName === null) {
+      return;
+    }
+
+    const normalizedName = nextName.trim();
+    if (!normalizedName) {
+      alert('分类名称不能为空');
+      return;
+    }
+    if (normalizedName === category) {
+      return;
+    }
+
+    try {
+      await window.electronAPI.renameCategory(category, normalizedName);
+      await loadData();
+      if (selectedCategory === category) {
+        setSelectedCategory(normalizedName);
+      }
+    } catch (error: any) {
+      alert(error?.message || '重命名分类失败');
+    }
+  };
+
+  const handleDeleteCategory = async (category: string) => {
+    const confirmed = confirm(`删除分类“${category}”？\n该分类下的密码会自动迁移到 ${DEFAULT_CATEGORY}。`);
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.deleteCategory(category);
+      await loadData();
+
+      if (selectedCategory === category) {
+        setSelectedCategory(DEFAULT_CATEGORY);
+      }
+
+      if (result?.movedCount) {
+        alert(`分类已删除，${result.movedCount} 条密码已迁移到 ${DEFAULT_CATEGORY}`);
+      }
+    } catch (error: any) {
+      alert(error?.message || '删除分类失败');
+    }
+  };
+
+  const navCategories = [ALL_CATEGORY, ...categories];
+
   const filteredPasswords = passwords.filter(p => {
-    const matchesCategory = selectedCategory === 'All' || p.category === selectedCategory;
+    const matchesCategory = selectedCategory === ALL_CATEGORY || p.category === selectedCategory;
     const matchesSearch = !searchQuery ||
       p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.username.toLowerCase().includes(searchQuery.toLowerCase());
@@ -81,9 +206,12 @@ const App: React.FC = () => {
   return (
     <div className="flex h-screen bg-gray-50">
       <CategoryNav
-        categories={categories}
+        categories={navCategories}
         selectedCategory={selectedCategory}
         onSelectCategory={setSelectedCategory}
+        onAddCategory={handleAddCategory}
+        onEditCategory={handleRenameCategory}
+        onDeleteCategory={handleDeleteCategory}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -130,6 +258,7 @@ const App: React.FC = () => {
       {showForm && (
         <PasswordForm
           editData={editingId ? passwords.find(p => p.id === editingId) : undefined}
+          categories={categories}
           onClose={() => { setShowForm(false); setEditingId(null); }}
           onSubmit={editingId ? handleUpdatePassword : handleAddPassword}
         />

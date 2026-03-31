@@ -12,9 +12,10 @@ interface GeneratorOptions {
 
 interface Props {
   onClose: () => void;
+  onUsePassword?: (password: string) => void;
 }
 
-const PasswordGenerator: React.FC<Props> = ({ onClose }) => {
+const PasswordGenerator: React.FC<Props> = ({ onClose, onUsePassword }) => {
   const [options, setOptions] = useState<GeneratorOptions>({
     length: 16,
     uppercase: true,
@@ -205,6 +206,17 @@ const PasswordGenerator: React.FC<Props> = ({ onClose }) => {
                 >
                   {isCopied ? '已复制' : '复制'}
                 </button>
+                {onUsePassword && (
+                  <button
+                    onClick={() => {
+                      onUsePassword(generatedPassword);
+                      onClose();
+                    }}
+                    className="btn-secondary px-4 py-2.5 whitespace-nowrap"
+                  >
+                    使用此密码
+                  </button>
+                )}
               </div>
 
               {/* 强度指示 */}

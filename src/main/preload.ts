@@ -26,6 +26,10 @@ export interface PasswordGeneratorOptions {
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getPasswords: () => ipcRenderer.invoke('get-passwords'),
+  getCategories: () => ipcRenderer.invoke('get-categories'),
+  addCategory: (name: string) => ipcRenderer.invoke('add-category', name),
+  renameCategory: (oldName: string, newName: string) => ipcRenderer.invoke('rename-category', oldName, newName),
+  deleteCategory: (name: string) => ipcRenderer.invoke('delete-category', name),
   addPassword: (entry: Omit<PasswordEntry, 'id' | 'createdAt' | 'updatedAt'>) =>
     ipcRenderer.invoke('add-password', entry),
   updatePassword: (id: number, entry: Partial<PasswordEntry>) =>

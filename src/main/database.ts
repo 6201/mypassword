@@ -16,6 +16,10 @@ export interface PasswordEntry {
   favorite?: boolean;
 }
 
+const DEFAULT_CATEGORY = 'Default';
+const IMPORTED_CATEGORY = 'Imported';
+const RESERVED_CATEGORY = 'All';
+
 export class Database {
   private db: DatabaseType.Database;
 
@@ -51,6 +55,92 @@ export class Database {
         value TEXT
       )
     `);
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS categories (
+        name TEXT PRIMARY KEY COLLATE NOCASE
+      )
+    `);
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_passwords_category
+      ON passwords (category COLLATE NOCASE)
+    `);
+
+    this.bootstrapCategories();
+  }
+
+  private bootstrapCategories(): void {
+    this.ensureCategoryExists(DEFAULT_CATEGORY);
+
+    const needsNormalization = this.db.prepare(`
+      SELECT 1
+      FROM passwords
+      WHERE category IS NULL
+         OR TRIM(category) = ''
+         OR LOWER(TRIM(category)) = LOWER(?)
+         OR category != TRIM(category)
+      LIMIT 1
+    `).get(RESERVED_CATEGORY);
+
+    if (needsNormalization) {
+      const normalizeStmt = this.db.prepare(`
+        UPDATE passwords
+        SET category = CASE
+          WHEN category IS NULL OR TRIM(category) = '' OR LOWER(TRIM(category)) = LOWER(?) THEN ?
+          ELSE TRIM(category)
+        END
+        WHERE category IS NULL
+           OR TRIM(category) = ''
+           OR LOWER(TRIM(category)) = LOWER(?)
+           OR category != TRIM(category)
+      `);
+      normalizeStmt.run(RESERVED_CATEGORY, DEFAULT_CATEGORY, RESERVED_CATEGORY);
+    }
+
+    const backfillStmt = this.db.prepare(`
+      INSERT OR IGNORE INTO categories (name)
+      SELECT DISTINCT category
+      FROM passwords
+      WHERE category IS NOT NULL AND TRIM(category) <> ''
+    `);
+    backfillStmt.run();
+  }
+
+  private normalizeCategoryName(name: string): string {
+    const normalized = (name || '').trim();
+    if (!normalized) {
+      throw new Error('分类名称不能为空');
+    }
+    if (normalized.toLowerCase() === RESERVED_CATEGORY.toLowerCase()) {
+      throw new Error('分类名称不可用');
+    }
+    return normalized;
+  }
+
+  private normalizePasswordCategory(category?: string | null): string {
+    const normalized = (category || '').trim();
+    if (!normalized) {
+      return DEFAULT_CATEGORY;
+    }
+    if (normalized.toLowerCase() === RESERVED_CATEGORY.toLowerCase()) {
+      return DEFAULT_CATEGORY;
+    }
+    return normalized;
+  }
+
+  private ensureCategoryExists(name: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO categories (name) VALUES (?)').run(name);
+  }
+
+  private categoryExists(name: string): boolean {
+    const row = this.db.prepare('SELECT name FROM categories WHERE name = ? COLLATE NOCASE LIMIT 1').get(name) as { name: string } | undefined;
+    return !!row;
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    const message = String((error as Error | undefined)?.message || '');
+    return message.includes('UNIQUE constraint failed: categories.name');
   }
 
   getAllPasswords(): PasswordEntry[] {
@@ -64,6 +154,9 @@ export class Database {
   }
 
   addPassword(entry: Omit<PasswordEntry, 'id' | 'createdAt' | 'updatedAt'>): number {
+    const category = this.normalizePasswordCategory(entry.category);
+    this.ensureCategoryExists(category);
+
     const stmt = this.db.prepare(`
       INSERT INTO passwords (title, username, password, url, notes, category, tags, favorite)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -74,7 +167,7 @@ export class Database {
       entry.password,
       entry.url || null,
       entry.notes || null,
-      entry.category || 'Default',
+      category,
       entry.tags || null,
       entry.favorite ? 1 : 0
     );
@@ -86,6 +179,9 @@ export class Database {
     if (!existing) {
       throw new Error(`Password entry with id ${id} not found`);
     }
+
+    const category = this.normalizePasswordCategory(entry.category ?? existing.category);
+    this.ensureCategoryExists(category);
 
     const stmt = this.db.prepare(`
       UPDATE passwords
@@ -99,9 +195,9 @@ export class Database {
       entry.password ?? existing.password,
       entry.url ?? existing.url ?? null,
       entry.notes ?? existing.notes ?? null,
-      entry.category ?? existing.category ?? 'Default',
+      category,
       entry.tags ?? existing.tags ?? null,
-      entry.favorite ?? existing.favorite ? 1 : 0,
+      (entry.favorite ?? existing.favorite) ? 1 : 0,
       id
     );
   }
@@ -122,9 +218,84 @@ export class Database {
   }
 
   getCategories(): string[] {
-    const stmt = this.db.prepare('SELECT DISTINCT category FROM passwords ORDER BY category');
-    const rows = stmt.all() as { category: string }[];
-    return rows.map(row => row.category);
+    const stmt = this.db.prepare('SELECT name FROM categories ORDER BY name COLLATE NOCASE');
+    const rows = stmt.all() as { name: string }[];
+    return rows.map(row => row.name);
+  }
+
+  addCategory(name: string): void {
+    const normalized = this.normalizeCategoryName(name);
+    try {
+      this.db.prepare('INSERT INTO categories (name) VALUES (?)').run(normalized);
+    } catch (error) {
+      if (this.isUniqueConstraintError(error)) {
+        throw new Error('分类已存在');
+      }
+      throw error;
+    }
+  }
+
+  renameCategory(oldName: string, newName: string): void {
+    const normalizedOldName = this.normalizeCategoryName(oldName);
+    const normalizedNewName = this.normalizeCategoryName(newName);
+
+    if (normalizedOldName.toLowerCase() === DEFAULT_CATEGORY.toLowerCase()) {
+      throw new Error('默认分类不可重命名');
+    }
+    if (normalizedOldName.toLowerCase() === normalizedNewName.toLowerCase()) {
+      return;
+    }
+    if (!this.categoryExists(normalizedOldName)) {
+      throw new Error('分类不存在');
+    }
+    if (this.categoryExists(normalizedNewName)) {
+      throw new Error('分类已存在');
+    }
+
+    this.db.exec('BEGIN TRANSACTION');
+    try {
+      this.db.prepare('UPDATE categories SET name = ? WHERE name = ? COLLATE NOCASE').run(normalizedNewName, normalizedOldName);
+      this.db.prepare('UPDATE passwords SET category = ? WHERE category = ? COLLATE NOCASE').run(normalizedNewName, normalizedOldName);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  deleteCategory(name: string): { movedCount: number } {
+    const normalizedName = this.normalizeCategoryName(name);
+
+    if (normalizedName.toLowerCase() === DEFAULT_CATEGORY.toLowerCase()) {
+      throw new Error('默认分类不可删除');
+    }
+    if (!this.categoryExists(normalizedName)) {
+      throw new Error('分类不存在');
+    }
+
+    this.ensureCategoryExists(DEFAULT_CATEGORY);
+
+    const countStmt = this.db.prepare('SELECT COUNT(*) as count FROM passwords WHERE category = ? COLLATE NOCASE');
+    const moveStmt = this.db.prepare('UPDATE passwords SET category = ? WHERE category = ? COLLATE NOCASE');
+    const deleteStmt = this.db.prepare('DELETE FROM categories WHERE name = ? COLLATE NOCASE');
+
+    this.db.exec('BEGIN TRANSACTION');
+    try {
+      const row = countStmt.get(normalizedName) as { count: number } | undefined;
+      const movedCount = row?.count ?? 0;
+
+      if (movedCount > 0) {
+        moveStmt.run(DEFAULT_CATEGORY, normalizedName);
+      }
+
+      deleteStmt.run(normalizedName);
+      this.db.exec('COMMIT');
+
+      return { movedCount };
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   close() {
@@ -167,11 +338,20 @@ export class Database {
       SELECT id FROM passwords WHERE username = ? AND (title = ? OR url = ?)
     `);
 
+    const ensuredCategories = new Set<string>();
+
     this.db.exec('BEGIN TRANSACTION');
 
     try {
       for (const entry of entries) {
         const existing = checkExistsStmt.get(entry.username, entry.title, entry.url || '') as { id: number } | undefined;
+        const rawCategory = entry.category && entry.category.trim() ? entry.category : IMPORTED_CATEGORY;
+        const category = this.normalizePasswordCategory(rawCategory);
+        const categoryKey = category.toLowerCase();
+        if (!ensuredCategories.has(categoryKey)) {
+          this.ensureCategoryExists(category);
+          ensuredCategories.add(categoryKey);
+        }
 
         if (existing) {
           if (mergeMode === 'overwrite') {
@@ -181,7 +361,7 @@ export class Database {
               entry.password,
               entry.url || null,
               entry.notes || null,
-              entry.category || 'Default',
+              category,
               entry.tags || null,
               entry.favorite ? 1 : 0,
               entry.username,
@@ -192,7 +372,6 @@ export class Database {
           } else if (mergeMode === 'skip') {
             result.skipped++;
           } else {
-            // rename: 添加后缀后插入
             const newTitle = `${entry.title} (imported-${Date.now()})`;
             insertStmt.run(
               newTitle,
@@ -200,7 +379,7 @@ export class Database {
               entry.password,
               entry.url || null,
               entry.notes || null,
-              entry.category || 'Imported',
+              category,
               entry.tags || null,
               entry.favorite ? 1 : 0
             );
@@ -213,7 +392,7 @@ export class Database {
             entry.password,
             entry.url || null,
             entry.notes || null,
-            entry.category || 'Imported',
+            category,
             entry.tags || null,
             entry.favorite ? 1 : 0
           );

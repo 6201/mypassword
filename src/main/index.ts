@@ -51,10 +51,25 @@ ipcMain.handle('get-passwords', () => {
   return db?.getAllPasswords();
 });
 
+ipcMain.handle('get-categories', () => {
+  return db?.getCategories();
+});
+
+ipcMain.handle('add-category', (_, name: string) => {
+  return db?.addCategory(name);
+});
+
+ipcMain.handle('rename-category', (_, oldName: string, newName: string) => {
+  return db?.renameCategory(oldName, newName);
+});
+
+ipcMain.handle('delete-category', (_, name: string) => {
+  return db?.deleteCategory(name);
+});
+
 ipcMain.handle('add-password', (_, entry) => {
   return db?.addPassword(entry);
 });
-
 ipcMain.handle('update-password', (_, id, entry) => {
   return db?.updatePassword(id, entry);
 });
