@@ -89,11 +89,13 @@
   transition: all 150ms ease;
 }
 
-.input-base::placeholder {
+.input-base::placeholder,
+.search-input::placeholder {
   color: #9ca3af;
 }
 
-.input-base:focus {
+.input-base:focus,
+.search-input:focus {
   outline: none;
   border-color: var(--color-primary-500);
   box-shadow: 0 0 0 1px var(--color-primary-500);
@@ -128,8 +130,7 @@
   width: 100%;
   max-width: 32rem;
   max-height: 90vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
 }
 

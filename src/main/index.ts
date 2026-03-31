@@ -1,10 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import path from 'path';
 import { initDatabase, Database } from './database';
-import { encrypt, decrypt, generateKey } from './crypto';
 import { generatePassword } from './password-generator';
 import { encryptExportData, decryptExportData, generateExportFilename, ExportData } from './export-import';
-import { parseOnePasswordCSV, parseOnePassword1PIF } from './onepassword-importer';
+import { parseOnePasswordCSV, parseOnePassword1PIF, OnePasswordEntry } from './onepassword-importer';
 import * as fs from 'fs';
 
 let mainWindow: BrowserWindow | null = null;
@@ -190,7 +189,7 @@ ipcMain.handle('import-from-1password', async () => {
     const ext = path.extname(filePath).toLowerCase();
 
     // 根据文件格式解析
-    let entries: any[] = [];
+    let entries: OnePasswordEntry[] = [];
     if (ext === '.csv') {
       entries = parseOnePasswordCSV(fileContent);
     } else if (ext === '.1pif') {

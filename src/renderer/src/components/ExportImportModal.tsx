@@ -7,6 +7,14 @@ interface Props {
 const ExportImportModal: React.FC<Props> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<'export' | 'import' | '1password'>('export');
 
+  const buildImportMessage = (result: { imported?: number; updated?: number; skipped?: number; filename: string }) => {
+    const messages = [];
+    if (result.imported && result.imported > 0) messages.push(`导入 ${result.imported} 条`);
+    if (result.updated && result.updated > 0) messages.push(`更新 ${result.updated} 条`);
+    if (result.skipped && result.skipped > 0) messages.push(`跳过 ${result.skipped} 条`);
+    return `从 ${result.filename} 导入完成：${messages.join(', ')}`;
+  };
+
   // Export state
   const [exportPassword, setExportPassword] = useState('');
   const [exportConfirm, setExportConfirm] = useState('');
@@ -21,7 +29,7 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
 
   // 1Password import state
   const [isOnePasswordImporting, setIsOnePasswordImporting] = useState(false);
-  const [onePasswordResult, setonePasswordResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [onePasswordResult, setOnePasswordResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const handleExport = async () => {
     if (!exportPassword) {
@@ -75,13 +83,9 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
       if (result.canceled) {
         setImportResult({ success: false, message: '已取消导入' });
       } else if (result.success) {
-        const messages = [];
-        if (result.imported > 0) messages.push(`导入 ${result.imported} 条`);
-        if (result.updated > 0) messages.push(`更新 ${result.updated} 条`);
-        if (result.skipped > 0) messages.push(`跳过 ${result.skipped} 条`);
         setImportResult({
           success: true,
-          message: `从 ${result.filename} 导入完成：${messages.join(', ')}`
+          message: buildImportMessage(result)
         });
         // 导入成功后刷新页面数据
         setTimeout(() => window.location.reload(), 1500);
@@ -97,29 +101,25 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
 
   const handleOnePasswordImport = async () => {
     setIsOnePasswordImporting(true);
-    setonePasswordResult(null);
+    setOnePasswordResult(null);
 
     try {
       const result = await window.electronAPI.importFrom1Password();
 
       if (result.canceled) {
-        setonePasswordResult({ success: false, message: '已取消导入' });
+        setOnePasswordResult({ success: false, message: '已取消导入' });
       } else if (result.success) {
-        const messages = [];
-        if (result.imported > 0) messages.push(`导入 ${result.imported} 条`);
-        if (result.updated > 0) messages.push(`更新 ${result.updated} 条`);
-        if (result.skipped > 0) messages.push(`跳过 ${result.skipped} 条`);
-        setonePasswordResult({
+        setOnePasswordResult({
           success: true,
-          message: `从 ${result.filename} 导入完成：${messages.join(', ')}`
+          message: buildImportMessage(result)
         });
         // 导入成功后刷新页面数据
         setTimeout(() => window.location.reload(), 1500);
       } else {
-        setonePasswordResult({ success: false, message: result.error || '导入失败' });
+        setOnePasswordResult({ success: false, message: result.error || '导入失败' });
       }
     } catch (error: any) {
-      setonePasswordResult({ success: false, message: error.message });
+      setOnePasswordResult({ success: false, message: error.message });
     }
 
     setIsOnePasswordImporting(false);
@@ -199,7 +199,7 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
         {/* 选项卡 */}
         <div style={{ display: 'flex', borderBottom: '1px solid var(--gray-200)', paddingHorizontal: '1.5rem' }}>
           <button
-            onClick={() => { setActiveTab('export'); setExportResult(null); setImportResult(null); setonePasswordResult(null); }}
+            onClick={() => { setActiveTab('export'); setExportResult(null); setImportResult(null); setOnePasswordResult(null); }}
             style={tabStyle(activeTab === 'export')}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -210,7 +210,7 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
             </span>
           </button>
           <button
-            onClick={() => { setActiveTab('import'); setExportResult(null); setImportResult(null); setonePasswordResult(null); }}
+            onClick={() => { setActiveTab('import'); setExportResult(null); setImportResult(null); setOnePasswordResult(null); }}
             style={tabStyle(activeTab === 'import')}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -221,7 +221,7 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
             </span>
           </button>
           <button
-            onClick={() => { setActiveTab('1password'); setExportResult(null); setImportResult(null); setonePasswordResult(null); }}
+            onClick={() => { setActiveTab('1password'); setExportResult(null); setImportResult(null); setOnePasswordResult(null); }}
             style={tabStyle(activeTab === '1password')}
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>

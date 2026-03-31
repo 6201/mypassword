@@ -2,6 +2,10 @@ const esbuild = require('esbuild');
 const postcss = require('postcss');
 const tailwindcss = require('@tailwindcss/postcss');
 const fs = require('fs');
+const path = require('path');
+const { execFileSync, spawnSync } = require('child_process');
+
+const OUTPUT_DIR = 'release';
 
 // 构建渲染进程 (React + Tailwind CSS)
 async function buildRenderer() {
@@ -12,10 +16,7 @@ async function buildRenderer() {
       from: 'src/renderer/src/styles/index.css',
     });
 
-    // 确保输出目录存在
-    if (!fs.existsSync('dist/renderer')) {
-      fs.mkdirSync('dist/renderer', { recursive: true });
-    }
+    fs.mkdirSync('dist/renderer', { recursive: true });
     fs.writeFileSync('dist/renderer/styles.css', result.css);
 
     // 复制 index.html
@@ -67,9 +68,37 @@ async function buildMain() {
   }
 }
 
+function killRunningAppProcesses() {
+  if (process.platform !== 'win32') return;
+
+  const targets = ['MyPassword.exe', 'electron.exe'];
+  for (const target of targets) {
+    spawnSync('taskkill', ['/F', '/IM', target], { stdio: 'ignore', shell: true });
+  }
+}
+
+function cleanOutputDir() {
+  try {
+    fs.rmSync(OUTPUT_DIR, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch (error) {
+    console.warn(`Failed to clean ${OUTPUT_DIR}: ${error.message}`);
+  }
+}
+
+function runPackager() {
+  const args = process.argv.slice(2).filter(arg => arg !== '--package');
+  execFileSync('npx', ['electron-builder', ...args], { stdio: 'inherit', shell: true });
+}
+
 // 运行构建
 (async () => {
   await buildMain();
   await buildRenderer();
   console.log('All builds complete!');
+
+  if (process.argv.includes('--package')) {
+    killRunningAppProcesses();
+    cleanOutputDir();
+    runPackager();
+  }
 })();

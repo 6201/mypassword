@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "node build.js && electron .",
     "dev:watch": "concurrently \"node build.js --watch\" \"wait-on dist/main/index.js && electron .\"",
-    "build": "node build.js && electron-builder",
-    "build:win": "node build.js && electron-builder --win",
-    "build:mac": "node build.js && electron-builder --mac",
-    "build:linux": "node build.js && electron-builder --linux",
+    "build": "node build.js --package",
+    "build:win": "node build.js --package --win",
+    "build:mac": "node build.js --package --mac",
+    "build:linux": "node build.js --package --linux",
     "test": "jest"
   },
   "build": {
