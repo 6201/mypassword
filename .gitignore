@@ -43,4 +43,6 @@ coverage/
 
 # claude
 .claude/
+.worktrees/
 CLAUDE.local.md
+docs/
