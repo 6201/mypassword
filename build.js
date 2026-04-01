@@ -85,6 +85,10 @@ function cleanOutputDir() {
   }
 }
 
+function installAppDeps() {
+  execFileSync('npx', ['electron-builder', 'install-app-deps'], { stdio: 'inherit', shell: true });
+}
+
 function runPackager() {
   const args = process.argv.slice(2).filter(arg => arg !== '--package');
   execFileSync('npx', ['electron-builder', ...args], { stdio: 'inherit', shell: true });
@@ -98,6 +102,7 @@ function runPackager() {
 
   if (process.argv.includes('--package')) {
     killRunningAppProcesses();
+    installAppDeps();
     cleanOutputDir();
     runPackager();
   }
