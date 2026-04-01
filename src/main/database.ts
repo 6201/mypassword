@@ -16,9 +16,23 @@ export interface PasswordEntry {
   favorite?: boolean;
 }
 
+export interface LockSettings {
+  passwordHash: string | null;
+  passwordSalt: string | null;
+  autoEnabled: boolean;
+  idleTimeoutSec: number;
+}
+
 const DEFAULT_CATEGORY = 'Default';
 const IMPORTED_CATEGORY = 'Imported';
 const RESERVED_CATEGORY = 'All';
+const LOCK_PASSWORD_HASH_KEY = 'lock.passwordHash';
+const LOCK_PASSWORD_SALT_KEY = 'lock.passwordSalt';
+const LOCK_AUTO_ENABLED_KEY = 'lock.autoEnabled';
+const LOCK_IDLE_TIMEOUT_SEC_KEY = 'lock.idleTimeoutSec';
+const DEFAULT_LOCK_IDLE_TIMEOUT_SEC = 300;
+const MIN_LOCK_IDLE_TIMEOUT_SEC = 60;
+const MAX_LOCK_IDLE_TIMEOUT_SEC = 3600;
 
 export class Database {
   private db: DatabaseType.Database;
@@ -141,6 +155,77 @@ export class Database {
   private isUniqueConstraintError(error: unknown): boolean {
     const message = String((error as Error | undefined)?.message || '');
     return message.includes('UNIQUE constraint failed: categories.name');
+  }
+
+  private normalizeIdleTimeoutSec(value: number): number {
+    if (!Number.isFinite(value)) {
+      return DEFAULT_LOCK_IDLE_TIMEOUT_SEC;
+    }
+
+    const integerValue = Math.floor(value);
+    if (integerValue < MIN_LOCK_IDLE_TIMEOUT_SEC) {
+      return MIN_LOCK_IDLE_TIMEOUT_SEC;
+    }
+    if (integerValue > MAX_LOCK_IDLE_TIMEOUT_SEC) {
+      return MAX_LOCK_IDLE_TIMEOUT_SEC;
+    }
+
+    return integerValue;
+  }
+
+  private parseIdleTimeoutSec(rawValue: string | null): number {
+    if (rawValue === null) {
+      return DEFAULT_LOCK_IDLE_TIMEOUT_SEC;
+    }
+
+    return this.normalizeIdleTimeoutSec(Number(rawValue));
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string | null } | undefined;
+    return row?.value ?? null;
+  }
+
+  setSetting(key: string, value: string | null): void {
+    this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+  }
+
+  setLockPassword(hash: string, saltHex: string): void {
+    this.setSetting(LOCK_PASSWORD_HASH_KEY, hash);
+    this.setSetting(LOCK_PASSWORD_SALT_KEY, saltHex);
+  }
+
+  clearLockPassword(): void {
+    this.setSetting(LOCK_PASSWORD_HASH_KEY, null);
+    this.setSetting(LOCK_PASSWORD_SALT_KEY, null);
+  }
+
+  updateLockConfig(config: { autoEnabled?: boolean; idleTimeoutSec?: number }): LockSettings {
+    const current = this.getLockSettings();
+
+    const autoEnabled = config.autoEnabled ?? current.autoEnabled;
+    const idleTimeoutSec = config.idleTimeoutSec === undefined
+      ? current.idleTimeoutSec
+      : this.normalizeIdleTimeoutSec(config.idleTimeoutSec);
+
+    this.setSetting(LOCK_AUTO_ENABLED_KEY, autoEnabled ? 'true' : 'false');
+    this.setSetting(LOCK_IDLE_TIMEOUT_SEC_KEY, String(idleTimeoutSec));
+
+    return this.getLockSettings();
+  }
+
+  getLockSettings(): LockSettings {
+    const passwordHash = this.getSetting(LOCK_PASSWORD_HASH_KEY);
+    const passwordSalt = this.getSetting(LOCK_PASSWORD_SALT_KEY);
+    const autoEnabledRaw = this.getSetting(LOCK_AUTO_ENABLED_KEY);
+    const idleTimeoutRaw = this.getSetting(LOCK_IDLE_TIMEOUT_SEC_KEY);
+
+    return {
+      passwordHash,
+      passwordSalt,
+      autoEnabled: autoEnabledRaw === 'true',
+      idleTimeoutSec: this.parseIdleTimeoutSec(idleTimeoutRaw)
+    };
   }
 
   getAllPasswords(): PasswordEntry[] {

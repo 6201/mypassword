@@ -350,4 +350,43 @@ describe('Database', () => {
       }
     });
   });
+
+  describe('lock settings', () => {
+    test('默认锁定配置正确', () => {
+      const settings = db.getLockSettings();
+
+      expect(settings.passwordHash).toBeNull();
+      expect(settings.passwordSalt).toBeNull();
+      expect(settings.autoEnabled).toBe(false);
+      expect(settings.idleTimeoutSec).toBe(300);
+    });
+
+    test('可持久化锁屏密码哈希和盐', () => {
+      db.setLockPassword('hash-123', 'salt-456');
+      const settings = db.getLockSettings();
+
+      expect(settings.passwordHash).toBe('hash-123');
+      expect(settings.passwordSalt).toBe('salt-456');
+    });
+
+    test('更新自动锁定配置并限制超时范围', () => {
+      db.updateLockConfig({ autoEnabled: true, idleTimeoutSec: 10 });
+      let settings = db.getLockSettings();
+      expect(settings.autoEnabled).toBe(true);
+      expect(settings.idleTimeoutSec).toBe(60);
+
+      db.updateLockConfig({ idleTimeoutSec: 5000 });
+      settings = db.getLockSettings();
+      expect(settings.idleTimeoutSec).toBe(3600);
+    });
+
+    test('清除锁屏密码后返回空值', () => {
+      db.setLockPassword('hash-123', 'salt-456');
+      db.clearLockPassword();
+      const settings = db.getLockSettings();
+
+      expect(settings.passwordHash).toBeNull();
+      expect(settings.passwordSalt).toBeNull();
+    });
+  });
 });
