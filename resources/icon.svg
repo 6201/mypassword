@@ -1,20 +1,31 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="rotate(-33 256 256)">
-    <circle cx="358" cy="256" r="112" fill="#2DA8E6" stroke="#1F2937" stroke-width="16" />
-    <circle cx="358" cy="256" r="48" fill="#F8FAFC" stroke="#1F2937" stroke-width="12" />
+  <defs>
+    <linearGradient id="keyBase" x1="62" y1="178" x2="438" y2="334" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#37C3FF" />
+      <stop offset="0.55" stop-color="#2BA7F0" />
+      <stop offset="1" stop-color="#1F7FDC" />
+    </linearGradient>
+    <linearGradient id="keySpecular" x1="248" y1="150" x2="402" y2="266" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#A6E6FF" stop-opacity="0.95" />
+      <stop offset="1" stop-color="#A6E6FF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
 
+  <g transform="rotate(-26 256 256)">
     <path
-      d="M68 228H286V252H248V284H214V318H94V296H110V264H142V228H68Z"
-      fill="#35B4F2"
-      stroke="#1F2937"
-      stroke-width="14"
+      d="M54 233C90 230 130 227 170 226H236C252 226 268 218 279 206L295 189C312 170 336 158 362 158C418 158 464 204 464 260C464 316 418 362 362 362C336 362 312 350 295 331L279 314C268 302 252 294 236 294H206V334H170V294H138V334H102V294H54V233Z"
+      fill="url(#keyBase)"
+      stroke="#1E2530"
+      stroke-width="16"
       stroke-linejoin="round"
+      stroke-linecap="round"
     />
 
+    <circle cx="362" cy="260" r="46" fill="#F7FCFF" stroke="#1E2530" stroke-width="12" />
+
     <path
-      d="M300 188C332 162 384 162 416 188C384 184 352 198 332 224C318 242 302 270 294 300C274 270 276 220 300 188Z"
-      fill="#79CCF7"
-      opacity="0.7"
+      d="M298 184C326 160 374 160 404 186C376 182 348 193 328 213C314 227 300 247 292 268C274 244 276 206 298 184Z"
+      fill="url(#keySpecular)"
     />
   </g>
 </svg>
