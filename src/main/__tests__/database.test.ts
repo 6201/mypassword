@@ -3,6 +3,15 @@ import * as path from 'path';
 import * as fs from 'fs';
 import DatabaseLib from 'better-sqlite3';
 
+jest.mock('electron', () => ({
+  app: {
+    getPath: jest.fn(() => process.cwd())
+  },
+  safeStorage: {
+    isEncryptionAvailable: jest.fn(() => false)
+  }
+}));
+
 describe('Database', () => {
   let db: Database;
   let dbPath: string;
@@ -18,6 +27,23 @@ describe('Database', () => {
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath);
     }
+  });
+
+  test('数据库中密码字段按密文落盘，读取时自动解密', () => {
+    const id = db.addPassword({
+      title: 'Encrypted Site',
+      username: 'enc-user',
+      password: 'enc-password-123'
+    });
+
+    const rawDb = new DatabaseLib(dbPath);
+    const row = rawDb.prepare('SELECT password FROM passwords WHERE id = ?').get(id) as { password: string };
+    rawDb.close();
+
+    expect(row.password.startsWith('enc:v1:')).toBe(true);
+
+    const stored = db.getPasswordById(id);
+    expect(stored?.password).toBe('enc-password-123');
   });
 
   describe('addPassword', () => {
@@ -66,13 +92,31 @@ describe('Database', () => {
       expect(passwords).toEqual([]);
     });
 
-    test('返回所有密码条目', () => {
+    test('返回所有密码条目（不含明文密码字段）', () => {
       db.addPassword({ title: 'A', username: 'a', password: '1' });
       db.addPassword({ title: 'B', username: 'b', password: '2' });
       db.addPassword({ title: 'C', username: 'c', password: '3' });
 
       const passwords = db.getAllPasswords();
       expect(passwords).toHaveLength(3);
+      expect(passwords[0]).not.toHaveProperty('password');
+    });
+  });
+
+  describe('getPasswordSecret', () => {
+    test('通过 ID 获取明文密码', () => {
+      const id = db.addPassword({
+        title: 'Secret Site',
+        username: 'secret-user',
+        password: 'secret-123'
+      });
+
+      const secret = db.getPasswordSecret(id);
+      expect(secret).toBe('secret-123');
+    });
+
+    test('不存在的 ID 抛错', () => {
+      expect(() => db.getPasswordSecret(999)).toThrow('Password entry with id 999 not found');
     });
   });
 
@@ -343,10 +387,30 @@ describe('Database', () => {
 
       expect(allRow?.category).toBe('Default');
       expect(emptyRow?.category).toBe('Default');
+      expect(allRow).not.toHaveProperty('password');
+      expect(emptyRow).not.toHaveProperty('password');
+      expect(migratedDb.getPasswordSecret((allRow as { id: number }).id)).toBe('pass-b');
+      expect(migratedDb.getPasswordSecret((emptyRow as { id: number }).id)).toBe('pass-c');
+
+      const legacyRaw = new DatabaseLib(legacyPath);
+      const encryptedRows = legacyRaw.prepare('SELECT password FROM passwords ORDER BY id').all() as Array<{ password: string }>;
+      legacyRaw.close();
+
+      for (const row of encryptedRows) {
+        expect(row.password.startsWith('enc:v1:')).toBe(true);
+      }
 
       migratedDb.close();
       if (fs.existsSync(legacyPath)) {
         fs.unlinkSync(legacyPath);
+      }
+
+      const migrationBackup = path.join(legacyPath, '..', `${path.basename(legacyPath)}.pre-encryption-`);
+      const dirEntries = fs.readdirSync(path.dirname(legacyPath));
+      for (const entry of dirEntries) {
+        if (entry.startsWith(path.basename(migrationBackup))) {
+          fs.unlinkSync(path.join(path.dirname(legacyPath), entry));
+        }
       }
     });
   });

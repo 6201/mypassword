@@ -94,11 +94,33 @@ function runPackager() {
   execFileSync('npx', ['electron-builder', ...args], { stdio: 'inherit', shell: true });
 }
 
+function runElectronApp() {
+  const env = { ...process.env };
+  // Some shells export this globally; remove it so Electron runs in app mode.
+  delete env.ELECTRON_RUN_AS_NODE;
+
+  const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const result = spawnSync(command, ['electron', '.'], {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    env
+  });
+
+  if (result.status && result.status !== 0) {
+    process.exit(result.status);
+  }
+}
+
 // 运行构建
 (async () => {
   await buildMain();
   await buildRenderer();
   console.log('All builds complete!');
+
+  if (process.argv.includes('--run-app')) {
+    runElectronApp();
+    return;
+  }
 
   if (process.argv.includes('--package')) {
     killRunningAppProcesses();

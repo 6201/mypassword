@@ -11,13 +11,17 @@ interface PasswordRecord {
   id: number;
   title: string;
   username: string;
-  password: string;
+  password?: string;
   url?: string;
   notes?: string;
   category?: string;
   tags?: string;
   updatedAt?: number;
   favorite?: boolean;
+}
+
+interface PasswordFormEditData extends PasswordRecord {
+  password: string;
 }
 
 interface LockStatus {
@@ -42,6 +46,7 @@ declare global {
       lockNow: () => Promise<LockStatus>;
       lockUnlock: (password: string) => Promise<LockUnlockResult>;
       getPasswords: () => Promise<PasswordRecord[]>;
+      getPasswordSecret: (id: number) => Promise<string>;
       getCategories: () => Promise<string[]>;
       addCategory: (name: string) => Promise<void>;
       renameCategory: (oldName: string, newName: string) => Promise<void>;
@@ -100,6 +105,8 @@ const App: React.FC = () => {
   const [showGenerator, setShowGenerator] = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingFormData, setEditingFormData] = useState<PasswordFormEditData | null>(null);
+  const [isEditSecretLoading, setIsEditSecretLoading] = useState(false);
   const [selectedPasswordId, setSelectedPasswordId] = useState<number | null>(null);
   const [categories, setCategories] = useState<string[]>([DEFAULT_CATEGORY]);
   const [categoryDialogMode, setCategoryDialogMode] = useState<CategoryDialogMode | null>(null);
@@ -122,6 +129,7 @@ const App: React.FC = () => {
   const [lockSettingsError, setLockSettingsError] = useState('');
   const [unlockPassword, setUnlockPassword] = useState('');
   const [unlockError, setUnlockError] = useState('');
+  const [passwordSecretCache, setPasswordSecretCache] = useState<Record<number, string>>({});
 
   const lastActivityAtRef = useRef<number>(Date.now());
 
@@ -165,7 +173,11 @@ const App: React.FC = () => {
       setShowExportImport(false);
       closeCategoryDialog();
       setShowLockSettings(false);
+      setEditingId(null);
+      setEditingFormData(null);
+      setIsEditSecretLoading(false);
       setPasswords([]);
+      setPasswordSecretCache({});
       setCategories([DEFAULT_CATEGORY]);
       setSelectedCategory(ALL_CATEGORY);
       setSelectedPasswordId(null);
@@ -187,7 +199,23 @@ const App: React.FC = () => {
     }));
 
     setPasswords(normalizedPasswords);
+    setPasswordSecretCache({});
     setCategories(normalizeCategories(categoryData || []));
+  };
+
+  const getPasswordSecret = async (id: number): Promise<string> => {
+    if (Object.prototype.hasOwnProperty.call(passwordSecretCache, id)) {
+      return passwordSecretCache[id];
+    }
+
+    const secret = await window.electronAPI.getPasswordSecret(id);
+    setPasswordSecretCache(prev => {
+      if (Object.prototype.hasOwnProperty.call(prev, id)) {
+        return prev;
+      }
+      return { ...prev, [id]: secret };
+    });
+    return secret;
   };
 
   useEffect(() => {
@@ -259,6 +287,8 @@ const App: React.FC = () => {
   const handleAddPassword = async (entry: any): Promise<void> => {
     await window.electronAPI.addPassword(entry);
     setShowForm(false);
+    setEditingFormData(null);
+    setIsEditSecretLoading(false);
     await loadData();
   };
 
@@ -269,6 +299,8 @@ const App: React.FC = () => {
 
     await window.electronAPI.updatePassword(editingId, entry);
     setEditingId(null);
+    setEditingFormData(null);
+    setIsEditSecretLoading(false);
     setShowForm(false);
     await loadData();
   };
@@ -279,12 +311,47 @@ const App: React.FC = () => {
     }
 
     await window.electronAPI.deletePassword(id);
+    setPasswordSecretCache(prev => {
+      if (prev[id] === undefined) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     await loadData();
   };
 
   const handleEdit = (password: PasswordRecord): void => {
-    setEditingId(password.id);
+    const selected = passwords.find(item => item.id === password.id) || password;
+    const applyFormData = (secret: string): void => {
+      setEditingFormData({ ...selected, password: secret });
+      setIsEditSecretLoading(false);
+      setShowForm(true);
+    };
+
+    const cachedSecret = passwordSecretCache[selected.id];
+    setEditingId(selected.id);
+
+    if (cachedSecret !== undefined) {
+      applyFormData(cachedSecret);
+      return;
+    }
+
+    setEditingFormData(null);
+    setIsEditSecretLoading(true);
     setShowForm(true);
+    void getPasswordSecret(selected.id)
+      .then(secret => {
+        applyFormData(secret);
+      })
+      .catch(error => {
+        setIsEditSecretLoading(false);
+        setShowForm(false);
+        setEditingId(null);
+        setEditingFormData(null);
+        alert(getErrorMessage(error, '获取密码失败'));
+      });
   };
 
   function closeCategoryDialog(): void {
@@ -492,6 +559,9 @@ const App: React.FC = () => {
     ? null
     : filteredPasswords.find(password => password.id === selectedPasswordId) || null;
 
+  const shouldShowEditLoading = showForm && editingId !== null && !editingFormData && isEditSecretLoading;
+  const shouldShowFormModal = showForm && (editingId === null || Boolean(editingFormData));
+
   const categoryDialogTitle = categoryDialogMode === 'add' ? '添加分类' : '重命名分类';
   const categoryDialogSubmitText = categoryDialogMode === 'add' ? '添加' : '保存';
 
@@ -575,7 +645,12 @@ const App: React.FC = () => {
             </svg>
           </button>
           <button
-            onClick={() => { setEditingId(null); setShowForm(true); }}
+            onClick={() => {
+              setEditingId(null);
+              setEditingFormData(null);
+              setIsEditSecretLoading(false);
+              setShowForm(true);
+            }}
             className="btn-primary"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -608,16 +683,38 @@ const App: React.FC = () => {
               password={selectedPassword}
               onEdit={handleEdit}
               onDelete={handleDeletePassword}
+              onRequestPassword={getPasswordSecret}
             />
           </div>
         </div>
       </div>
 
-      {showForm && (
+      {shouldShowEditLoading && (
+        <div className="modal-overlay" onClick={() => {
+          setShowForm(false);
+          setEditingId(null);
+          setEditingFormData(null);
+          setIsEditSecretLoading(false);
+        }}>
+          <div
+            className="modal-content max-w-sm px-6 py-10 text-center text-sm text-gray-600"
+            onClick={event => event.stopPropagation()}
+          >
+            正在加载密码...
+          </div>
+        </div>
+      )}
+
+      {shouldShowFormModal && (
         <PasswordForm
-          editData={editingId ? passwords.find(p => p.id === editingId) : undefined}
+          editData={editingId ? (editingFormData || undefined) : undefined}
           categories={categories}
-          onClose={() => { setShowForm(false); setEditingId(null); }}
+          onClose={() => {
+            setShowForm(false);
+            setEditingId(null);
+            setEditingFormData(null);
+            setIsEditSecretLoading(false);
+          }}
           onSubmit={editingId ? handleUpdatePassword : handleAddPassword}
         />
       )}

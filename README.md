@@ -1,17 +1,32 @@
 # MyPassword - 密码管理工具
 
-一个安全、易用的桌面密码管理工具，支持 Windows/macOS/Linux。
+一个本地优先的桌面密码管理工具，支持 Windows / macOS / Linux。
 
 ## 功能特性
 
-- **密码存储** - 安全加密存储所有密码条目
-- **密码生成器** - 自动生成高强度随机密码，可配置长度和复杂度规则
-- **自动填充** - 快捷键快速复制密码到剪贴板
-- **1Password 导入** - 支持从 1Password 导出的 CSV/1PIF 文件导入
-- **数据导出/导入** - 加密备份文件，支持跨设备迁移数据
-- **分类管理** - 按分类整理密码条目
-- **搜索功能** - 快速查找密码
-- **AES-256 加密** - 军用级别加密保护数据安全
+- **三栏密码管理界面**：左侧分类、中列条目、右侧详情，便于快速浏览和编辑。
+- **详情页快捷操作**：支持复制账号/密码、显示/隐藏密码、编辑、删除。
+- **网站图标增强**：自动尝试拉取站点 favicon，本地缓存并在异常时自动回退默认字符图标。
+- **锁屏与自动锁定**：支持设置锁屏密码、手动锁定、空闲自动锁定。
+- **密码生成器**：可配置长度、字符类型、排除模糊字符、每类至少一个字符。
+- **分类 / 标签 / 收藏**：支持按分类管理、标签展示、收藏标记。
+- **导入导出**：支持加密备份导入导出，支持 1Password CSV / 1PIF 导入。
+- **搜索与过滤**：支持按关键词与分类快速筛选。
+
+## 数据存储位置
+
+应用数据保存在 Electron 的 `userData` 目录下。
+
+- **主数据库**：`passwords.db`
+- **favicon 缓存目录**：`favicons/`
+
+代码位置参考：`src/main/database.ts` 中 `app.getPath('userData')` 与 `passwords.db` 组合路径。
+
+常见实际路径示例：
+
+- **Windows**：`C:\Users\<用户名>\AppData\Roaming\MyPassword\passwords.db`
+- **macOS**：`~/Library/Application Support/MyPassword/passwords.db`
+- **Linux**：`~/.config/MyPassword/passwords.db`
 
 ## 密码生成器规则
 
@@ -27,18 +42,14 @@
 
 ## 安装
 
-从 [Releases](https://github.com/your-username/mypassword/releases) 下载适合你系统的安装包：
-
-- **Windows**: `MyPassword Setup 1.0.0.exe` (安装版) 或 `MyPassword 1.0.0.exe` (便携版)
-- **macOS**: `MyPassword-1.0.0.dmg`
-- **Linux**: `MyPassword-1.0.0.AppImage` 或 `mypassword_1.0.0_amd64.deb`
+从 [Releases](https://github.com/6201/mypassword/releases) 下载适合你系统的安装包。
 
 ## 开发
 
 ### 环境要求
 
 - Node.js 18+
-- npm 或 yarn
+- npm
 
 ### 安装依赖
 
@@ -77,71 +88,61 @@ npm run build:linux   # Linux
 
 ## 项目结构
 
-```
+```text
 myPassword/
 ├── src/
-│   ├── main/                    # Electron 主进程
-│   │   ├── index.ts             # 入口文件
-│   │   ├── database.ts          # 数据库操作
-│   │   ├── crypto.ts            # 加密模块
-│   │   ├── password-generator.ts # 密码生成器
-│   │   ├── onepassword-importer.ts # 1Password 导入
-│   │   └── preload.ts           # 预加载脚本
-│   └── renderer/                # React 渲染进程
-│       ├── index.html
-│       ├── src/
-│       │   ├── App.tsx
-│       │   ├── index.tsx
-│       │   └── components/
-│       │       ├── PasswordList.tsx
-│       │       ├── PasswordForm.tsx
-│       │       ├── PasswordGenerator.tsx
-│       │       ├── SearchBar.tsx
-│       │       └── CategoryNav.tsx
-├── resources/                   # 图标等资源
+│   ├── main/                        # Electron 主进程
+│   │   ├── index.ts                 # IPC / 主进程逻辑
+│   │   ├── database.ts              # 数据库操作
+│   │   ├── crypto.ts                # 加密模块
+│   │   ├── password-generator.ts    # 密码生成器
+│   │   ├── onepassword-importer.ts  # 1Password 导入
+│   │   └── preload.ts               # 预加载脚本
+│   └── renderer/                    # React 渲染进程
+│       └── src/
+│           ├── App.tsx
+│           └── components/
+│               ├── CategoryNav.tsx
+│               ├── PasswordList.tsx
+│               ├── PasswordDetail.tsx
+│               ├── PasswordForm.tsx
+│               ├── PasswordGenerator.tsx
+│               ├── SearchBar.tsx
+│               └── ExportImportModal.tsx
+├── resources/                       # 图标等资源
 ├── package.json
-├── tsconfig.json
-└── jest.config.js
+└── README.md
 ```
 
 ## 安全性
 
-- 使用 PBKDF2 从主密码派生加密密钥（100,000 次迭代）
-- 使用 AES-256-GCM 加密存储敏感数据
-- 每次加密使用随机 IV 确保密文唯一性
-- 剪贴板自动清理（30 秒后）
+- 使用 PBKDF2 派生密钥（100,000 次迭代）
+- 使用 AES-256-GCM 加密导出备份数据
+- 剪贴板复制内容 30 秒后自动清空
+- 支持应用锁屏密码和自动锁定
 
 ## 从 1Password 导入
 
-1. 在 1Password 中导出数据为 CSV 或 1PIF 格式
-2. 在 MyPassword 中选择"导入"功能
-3. 选择导出的文件
-4. 确认导入的数据
+1. 在 1Password 中导出 CSV 或 1PIF 文件。
+2. 在 MyPassword 中点击“备份与恢复”并选择“导入”。
+3. 选择文件并确认导入结果。
 
 ## 数据备份与恢复
 
-### 导出数据（备份）
+### 导出（备份）
 
-1. 点击右上角的"备份与恢复"按钮（下载图标）
-2. 切换到"导出数据"选项卡
-3. 设置一个加密密码（至少 4 位）
-4. 确认密码
-5. 点击"导出备份"，选择保存位置
+1. 点击右上角“备份与恢复”按钮。
+2. 选择“导出数据”。
+3. 设置并确认加密密码。
+4. 选择导出位置并保存。
 
-导出的文件使用 AES-256-GCM 加密，需要密码才能解密导入。
+### 导入（恢复）
 
-### 导入数据（恢复）
-
-1. 点击右上角的"备份与恢复"按钮
-2. 切换到"导入数据"选项卡
-3. 输入备份文件的加密密码
-4. 选择重复数据处理方式：
-   - **跳过重复** - 如果条目已存在，跳过不导入
-   - **覆盖重复** - 用备份中的数据覆盖现有条目
-   - **重命名** - 为重复条目添加后缀后作为新条目导入
-5. 点击"导入备份"，选择备份文件
-
-导入完成后会自动刷新页面显示新数据。
+1. 点击右上角“备份与恢复”按钮。
+2. 选择“导入数据”。
+3. 输入备份加密密码。
+4. 选择冲突处理策略：跳过 / 覆盖 / 重命名。
+5. 选择备份文件并完成导入。
 
 ## License
 

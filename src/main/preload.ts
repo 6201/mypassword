@@ -4,7 +4,7 @@ export interface PasswordEntry {
   id?: number;
   title: string;
   username: string;
-  password: string;
+  password?: string;
   url?: string;
   notes?: string;
   category?: string;
@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   lockNow: (): Promise<LockStatus> => ipcRenderer.invoke('lock-now'),
   lockUnlock: (password: string): Promise<{ success: boolean; error?: string; status: LockStatus }> => ipcRenderer.invoke('lock-unlock', { password }),
   getPasswords: (): Promise<PasswordEntry[]> => ipcRenderer.invoke('get-passwords'),
+  getPasswordSecret: (id: number): Promise<string> => ipcRenderer.invoke('get-password-secret', id),
   getCategories: (): Promise<string[]> => ipcRenderer.invoke('get-categories'),
   addCategory: (name: string): Promise<void> => ipcRenderer.invoke('add-category', name),
   renameCategory: (oldName: string, newName: string): Promise<void> => ipcRenderer.invoke('rename-category', oldName, newName),

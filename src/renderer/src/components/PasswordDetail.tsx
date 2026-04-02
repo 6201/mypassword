@@ -4,7 +4,7 @@ interface PasswordRecord {
   id: number;
   title: string;
   username: string;
-  password: string;
+  password?: string;
   url?: string;
   notes?: string;
   category?: string;
@@ -17,17 +17,24 @@ interface Props {
   password: PasswordRecord | null;
   onEdit: (password: PasswordRecord) => void;
   onDelete: (id: number) => void;
+  onRequestPassword: (id: number) => Promise<string>;
 }
 
 type CopiedField = 'username' | 'password' | null;
 
-const PasswordDetail: React.FC<Props> = ({ password, onEdit, onDelete }) => {
+const PasswordDetail: React.FC<Props> = ({ password, onEdit, onDelete, onRequestPassword }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState<CopiedField>(null);
+  const [resolvedPassword, setResolvedPassword] = useState<string | null>(null);
+  const [isPasswordLoading, setIsPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     setShowPassword(false);
     setCopiedField(null);
+    setResolvedPassword(null);
+    setIsPasswordLoading(false);
+    setPasswordError('');
   }, [password?.id]);
 
   const copyText = async (text: string, field: CopiedField): Promise<void> => {
@@ -37,6 +44,54 @@ const PasswordDetail: React.FC<Props> = ({ password, onEdit, onDelete }) => {
       navigator.clipboard.writeText('');
       setCopiedField(current => (current === field ? null : current));
     }, 30000);
+  };
+
+  const resolvePassword = async (): Promise<string | null> => {
+    if (!password) {
+      return null;
+    }
+
+    if (resolvedPassword !== null) {
+      return resolvedPassword;
+    }
+
+    if (password.password) {
+      setResolvedPassword(password.password);
+      return password.password;
+    }
+
+    setIsPasswordLoading(true);
+    setPasswordError('');
+
+    try {
+      const secret = await onRequestPassword(password.id);
+      setResolvedPassword(secret);
+      return secret;
+    } catch (error: unknown) {
+      setPasswordError(error instanceof Error ? error.message : '获取密码失败');
+      return null;
+    } finally {
+      setIsPasswordLoading(false);
+    }
+  };
+
+  const handleTogglePassword = async (): Promise<void> => {
+    if (showPassword) {
+      setShowPassword(false);
+      return;
+    }
+
+    const secret = await resolvePassword();
+    if (secret !== null) {
+      setShowPassword(true);
+    }
+  };
+
+  const handleCopyPassword = async (): Promise<void> => {
+    const secret = await resolvePassword();
+    if (secret !== null) {
+      await copyText(secret, 'password');
+    }
   };
 
   if (!password) {
@@ -110,12 +165,13 @@ const PasswordDetail: React.FC<Props> = ({ password, onEdit, onDelete }) => {
           <div className="grid grid-cols-[4.25rem_minmax(0,1fr)_auto_auto] items-center gap-2">
             <span className="text-xs text-gray-400">密码:</span>
             <span className="truncate rounded-md bg-gray-100 px-3 py-1.5 font-mono text-sm text-gray-700">
-              {showPassword ? password.password : '••••••••••••'}
+              {showPassword ? (resolvedPassword ?? password.password ?? '') : '••••••••••••'}
             </span>
             <button
               type="button"
-              onClick={() => setShowPassword(current => !current)}
-              className="shrink-0 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              onClick={() => void handleTogglePassword()}
+              disabled={isPasswordLoading}
+              className="shrink-0 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
               title={showPassword ? '隐藏密码' : '显示密码'}
             >
               {showPassword ? (
@@ -131,12 +187,17 @@ const PasswordDetail: React.FC<Props> = ({ password, onEdit, onDelete }) => {
             </button>
             <button
               type="button"
-              onClick={() => copyText(password.password, 'password')}
-              className="shrink-0 rounded-lg bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-100"
+              onClick={() => void handleCopyPassword()}
+              disabled={isPasswordLoading}
+              className="shrink-0 rounded-lg bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {copiedField === 'password' ? '已复制' : '复制密码'}
+              {isPasswordLoading ? '加载中...' : copiedField === 'password' ? '已复制' : '复制密码'}
             </button>
           </div>
+
+          {passwordError && (
+            <p className="text-xs text-red-600">{passwordError}</p>
+          )}
 
           {password.url && (
             <div className="grid grid-cols-[4.25rem_minmax(0,1fr)] items-center gap-2">

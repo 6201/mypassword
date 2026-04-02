@@ -4,8 +4,8 @@
   "description": "密码管理工具",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "node build.js && electron .",
-    "dev:watch": "concurrently \"node build.js --watch\" \"wait-on dist/main/index.js && electron .\"",
+    "dev": "node build.js --run-app",
+    "dev:watch": "concurrently \"node build.js --watch\" \"wait-on dist/main/index.js && node build.js --run-app\"",
     "build": "node build.js --package",
     "build:win": "node build.js --package --win",
     "build:mac": "node build.js --package --mac",

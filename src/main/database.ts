@@ -1,6 +1,8 @@
 import DatabaseType from 'better-sqlite3';
+import fs from 'fs';
 import path from 'path';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
+import { decryptPasswordField, encryptPasswordField, generateDataEncryptionKey } from './crypto';
 
 export interface PasswordEntry {
   id?: number;
@@ -16,6 +18,8 @@ export interface PasswordEntry {
   favorite?: boolean;
 }
 
+export type PasswordSummaryEntry = Omit<PasswordEntry, 'password'>;
+
 export interface LockSettings {
   passwordHash: string | null;
   passwordSalt: string | null;
@@ -30,20 +34,33 @@ const LOCK_PASSWORD_HASH_KEY = 'lock.passwordHash';
 const LOCK_PASSWORD_SALT_KEY = 'lock.passwordSalt';
 const LOCK_AUTO_ENABLED_KEY = 'lock.autoEnabled';
 const LOCK_IDLE_TIMEOUT_SEC_KEY = 'lock.idleTimeoutSec';
+const DATA_ENCRYPTION_KEY_WRAPPED_KEY = 'crypto.dek.wrapped.v1';
+const PASSWORDS_MIGRATION_IN_PROGRESS_KEY = 'crypto.migration.passwords.v1.inProgress';
+const PASSWORDS_MIGRATION_COMPLETED_AT_KEY = 'crypto.migration.passwords.v1.completedAt';
+const PASSWORDS_MIGRATION_BACKUP_PATH_KEY = 'crypto.migration.passwords.v1.backupPath';
+const DATA_ENCRYPTION_KEY_SAFE_PREFIX = 'safe:v1:';
+const DATA_ENCRYPTION_KEY_PLAIN_PREFIX = 'plain:v1:';
 const DEFAULT_LOCK_IDLE_TIMEOUT_SEC = 300;
 const MIN_LOCK_IDLE_TIMEOUT_SEC = 60;
 const MAX_LOCK_IDLE_TIMEOUT_SEC = 3600;
 
 export class Database {
   private db: DatabaseType.Database;
+  private dbPath: string | null;
+  private dataEncryptionKey: Buffer;
 
   constructor(dbOrPath: string | DatabaseType.Database) {
     if (typeof dbOrPath === 'string') {
+      this.dbPath = dbOrPath;
       this.db = new DatabaseType(dbOrPath);
     } else {
+      this.dbPath = null;
       this.db = dbOrPath;
     }
+
     this.init();
+    this.dataEncryptionKey = this.loadOrCreateDataEncryptionKey();
+    this.migratePlaintextPasswords();
   }
 
   private init() {
@@ -173,6 +190,144 @@ export class Database {
     return integerValue;
   }
 
+  private isSafeStorageUsable(): boolean {
+    try {
+      return safeStorage.isEncryptionAvailable();
+    } catch {
+      return false;
+    }
+  }
+
+  private assertDataEncryptionKeyLength(key: Buffer): Buffer {
+    if (key.length !== 32) {
+      throw new Error('数据加密密钥长度无效');
+    }
+    return key;
+  }
+
+  private loadOrCreateDataEncryptionKey(): Buffer {
+    const stored = this.getSetting(DATA_ENCRYPTION_KEY_WRAPPED_KEY);
+    if (stored) {
+      return this.assertDataEncryptionKeyLength(this.unwrapDataEncryptionKey(stored));
+    }
+
+    const key = generateDataEncryptionKey();
+    this.setSetting(DATA_ENCRYPTION_KEY_WRAPPED_KEY, this.wrapDataEncryptionKey(key));
+    return key;
+  }
+
+  private wrapDataEncryptionKey(key: Buffer): string {
+    if (this.isSafeStorageUsable()) {
+      const encrypted = safeStorage.encryptString(key.toString('base64')).toString('base64');
+      return `${DATA_ENCRYPTION_KEY_SAFE_PREFIX}${encrypted}`;
+    }
+
+    return `${DATA_ENCRYPTION_KEY_PLAIN_PREFIX}${key.toString('base64')}`;
+  }
+
+  private unwrapDataEncryptionKey(stored: string): Buffer {
+    if (stored.startsWith(DATA_ENCRYPTION_KEY_SAFE_PREFIX)) {
+      if (!this.isSafeStorageUsable()) {
+        throw new Error('当前系统不可用安全存储，无法解密数据密钥');
+      }
+
+      const payload = stored.slice(DATA_ENCRYPTION_KEY_SAFE_PREFIX.length);
+      const decrypted = safeStorage.decryptString(Buffer.from(payload, 'base64'));
+      return Buffer.from(decrypted, 'base64');
+    }
+
+    if (stored.startsWith(DATA_ENCRYPTION_KEY_PLAIN_PREFIX)) {
+      const payload = stored.slice(DATA_ENCRYPTION_KEY_PLAIN_PREFIX.length);
+      return Buffer.from(payload, 'base64');
+    }
+
+    throw new Error('数据加密密钥格式无效');
+  }
+
+  private encryptAtRestPassword(password: string): string {
+    return encryptPasswordField(password, this.dataEncryptionKey);
+  }
+
+  private decryptAtRestPassword(password: string): string {
+    return decryptPasswordField(password, this.dataEncryptionKey);
+  }
+
+  private mapPasswordRow(row: PasswordEntry): PasswordEntry {
+    return {
+      ...row,
+      password: this.decryptAtRestPassword(row.password),
+      favorite: Boolean(row.favorite)
+    };
+  }
+
+  private mapPasswordRows(rows: PasswordEntry[]): PasswordEntry[] {
+    return rows.map(row => this.mapPasswordRow(row));
+  }
+
+  private mapSummaryRow(row: PasswordEntry): PasswordSummaryEntry {
+    const { password: _password, ...rest } = row;
+    return {
+      ...rest,
+      favorite: Boolean(rest.favorite)
+    };
+  }
+
+  private mapSummaryRows(rows: PasswordEntry[]): PasswordSummaryEntry[] {
+    return rows.map(row => this.mapSummaryRow(row));
+  }
+
+  private createMigrationBackupIfNeeded(): void {
+    if (!this.dbPath) {
+      return;
+    }
+
+    const existingBackup = this.getSetting(PASSWORDS_MIGRATION_BACKUP_PATH_KEY);
+    if (existingBackup && fs.existsSync(existingBackup)) {
+      return;
+    }
+
+    const backupPath = `${this.dbPath}.pre-encryption-${Date.now()}.bak`;
+    fs.copyFileSync(this.dbPath, backupPath);
+    this.setSetting(PASSWORDS_MIGRATION_BACKUP_PATH_KEY, backupPath);
+  }
+
+  private migratePlaintextPasswords(): void {
+    const hasPending = this.db.prepare(`
+      SELECT 1
+      FROM passwords
+      WHERE password NOT LIKE 'enc:v1:%'
+      LIMIT 1
+    `).get();
+
+    if (!hasPending) {
+      return;
+    }
+
+    this.createMigrationBackupIfNeeded();
+    this.setSetting(PASSWORDS_MIGRATION_IN_PROGRESS_KEY, 'true');
+
+    this.db.exec('BEGIN TRANSACTION');
+    try {
+      const rows = this.db.prepare(`
+        SELECT id, password
+        FROM passwords
+        WHERE password NOT LIKE 'enc:v1:%'
+      `).all() as Array<{ id: number; password: string }>;
+
+      const updateStmt = this.db.prepare('UPDATE passwords SET password = ?, updatedAt = strftime(\'%s\', \'now\') WHERE id = ?');
+      for (const row of rows) {
+        updateStmt.run(this.encryptAtRestPassword(row.password), row.id);
+      }
+
+      this.db.exec('COMMIT');
+      this.setSetting(PASSWORDS_MIGRATION_COMPLETED_AT_KEY, String(Date.now()));
+      this.setSetting(PASSWORDS_MIGRATION_IN_PROGRESS_KEY, null);
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   private parseIdleTimeoutSec(rawValue: string | null): number {
     if (rawValue === null) {
       return DEFAULT_LOCK_IDLE_TIMEOUT_SEC;
@@ -228,14 +383,24 @@ export class Database {
     };
   }
 
-  getAllPasswords(): PasswordEntry[] {
+  getAllPasswords(): PasswordSummaryEntry[] {
     const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY title');
-    return stmt.all() as PasswordEntry[];
+    return this.mapSummaryRows(stmt.all() as PasswordEntry[]);
+  }
+
+  getPasswordSecret(id: number): string {
+    const stmt = this.db.prepare('SELECT password FROM passwords WHERE id = ?');
+    const row = stmt.get(id) as { password: string } | undefined;
+    if (!row) {
+      throw new Error(`Password entry with id ${id} not found`);
+    }
+    return this.decryptAtRestPassword(row.password);
   }
 
   getPasswordById(id: number): PasswordEntry | undefined {
     const stmt = this.db.prepare('SELECT * FROM passwords WHERE id = ?');
-    return stmt.get(id) as PasswordEntry | undefined;
+    const row = stmt.get(id) as PasswordEntry | undefined;
+    return row ? this.mapPasswordRow(row) : undefined;
   }
 
   addPassword(entry: Omit<PasswordEntry, 'id' | 'createdAt' | 'updatedAt'>): number {
@@ -249,7 +414,7 @@ export class Database {
     const result = stmt.run(
       entry.title,
       entry.username,
-      entry.password,
+      this.encryptAtRestPassword(entry.password),
       entry.url || null,
       entry.notes || null,
       category,
@@ -277,7 +442,7 @@ export class Database {
     stmt.run(
       entry.title ?? existing.title,
       entry.username ?? existing.username,
-      entry.password ?? existing.password,
+      this.encryptAtRestPassword(entry.password ?? existing.password),
       entry.url ?? existing.url ?? null,
       entry.notes ?? existing.notes ?? null,
       category,
@@ -292,14 +457,14 @@ export class Database {
     stmt.run(id);
   }
 
-  searchPasswords(query: string): PasswordEntry[] {
+  searchPasswords(query: string): PasswordSummaryEntry[] {
     const stmt = this.db.prepare(`
       SELECT * FROM passwords
       WHERE title LIKE ? OR username LIKE ? OR url LIKE ? OR notes LIKE ?
       ORDER BY title
     `);
     const searchPattern = `%${query}%`;
-    return stmt.all(searchPattern, searchPattern, searchPattern, searchPattern) as PasswordEntry[];
+    return this.mapSummaryRows(stmt.all(searchPattern, searchPattern, searchPattern, searchPattern) as PasswordEntry[]);
   }
 
   getCategories(): string[] {
@@ -392,7 +557,7 @@ export class Database {
    */
   exportAllData(): PasswordEntry[] {
     const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY createdAt');
-    return stmt.all() as PasswordEntry[];
+    return this.mapPasswordRows(stmt.all() as PasswordEntry[]);
   }
 
   /**
@@ -443,7 +608,7 @@ export class Database {
             updateStmt.run(
               entry.title,
               entry.username,
-              entry.password,
+              this.encryptAtRestPassword(entry.password),
               entry.url || null,
               entry.notes || null,
               category,
@@ -461,7 +626,7 @@ export class Database {
             insertStmt.run(
               newTitle,
               entry.username,
-              entry.password,
+              this.encryptAtRestPassword(entry.password),
               entry.url || null,
               entry.notes || null,
               category,
@@ -474,7 +639,7 @@ export class Database {
           insertStmt.run(
             entry.title,
             entry.username,
-            entry.password,
+            this.encryptAtRestPassword(entry.password),
             entry.url || null,
             entry.notes || null,
             category,

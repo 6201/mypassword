@@ -1,4 +1,15 @@
-import { encrypt, decrypt, generateKey, hashPassword, verifyPassword, generateSalt } from '../crypto';
+import {
+  decrypt,
+  decryptPasswordField,
+  encrypt,
+  encryptPasswordField,
+  generateDataEncryptionKey,
+  generateKey,
+  hashPassword,
+  isEncryptedPasswordField,
+  verifyPassword,
+  generateSalt
+} from '../crypto';
 
 describe('Crypto', () => {
   describe('generateKey', () => {
@@ -106,6 +117,38 @@ describe('Crypto', () => {
         const decrypted = decrypt(encrypted, key);
         expect(decrypted).toBe(data);
       }
+    });
+  });
+
+  describe('password field encryption', () => {
+    test('字段密文可加解密并带版本前缀', () => {
+      const key = generateDataEncryptionKey();
+      const encrypted = encryptPasswordField('my-secret', key);
+
+      expect(isEncryptedPasswordField(encrypted)).toBe(true);
+      expect(encrypted.startsWith('enc:v1:')).toBe(true);
+      expect(decryptPasswordField(encrypted, key)).toBe('my-secret');
+    });
+
+    test('解密函数兼容未加密旧值', () => {
+      const key = generateDataEncryptionKey();
+      expect(decryptPasswordField('legacy-plain', key)).toBe('legacy-plain');
+    });
+
+    test('不同 IV 会产生不同密文', () => {
+      const key = generateDataEncryptionKey();
+      const encryptedA = encryptPasswordField('same-input', key);
+      const encryptedB = encryptPasswordField('same-input', key);
+
+      expect(encryptedA).not.toBe(encryptedB);
+    });
+
+    test('错误密钥无法解密字段密文', () => {
+      const keyA = generateDataEncryptionKey();
+      const keyB = generateDataEncryptionKey();
+      const encrypted = encryptPasswordField('my-secret', keyA);
+
+      expect(() => decryptPasswordField(encrypted, keyB)).toThrow();
     });
   });
 });

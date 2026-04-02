@@ -566,6 +566,11 @@ ipcMain.handle('get-passwords', () => {
   return requireDatabase().getAllPasswords();
 });
 
+ipcMain.handle('get-password-secret', (_, id: number) => {
+  ensureUnlocked();
+  return requireDatabase().getPasswordSecret(id);
+});
+
 ipcMain.handle('get-categories', () => {
   ensureUnlocked();
   return requireDatabase().getCategories();
