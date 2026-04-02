@@ -73,12 +73,24 @@ const PasswordForm: React.FC<Props> = ({ editData, categories, onClose, onSubmit
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  function handleOverlayClick(event: React.MouseEvent<HTMLDivElement>): void {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    onClose();
+  }
+
+  function handleModalContentClick(event: React.MouseEvent<HTMLDivElement>): void {
+    event.stopPropagation();
+  }
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={handleOverlayClick}>
       <div
         className="modal-content rounded-2xl flex flex-col"
         style={{ overflow: 'hidden' }}
-        onClick={e => e.stopPropagation()}
+        onClick={handleModalContentClick}
       >
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between shrink-0">
           <h2 className="text-lg font-semibold text-gray-900">
@@ -101,6 +113,7 @@ const PasswordForm: React.FC<Props> = ({ editData, categories, onClose, onSubmit
             </label>
             <input
               type="text"
+              autoFocus
               value={formData.title}
               onChange={e => handleChange('title', e.target.value)}
               required
