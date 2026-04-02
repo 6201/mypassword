@@ -65,7 +65,7 @@
     "password",
     "manager"
   ],
-  "author": "",
+  "author": "6201 <6201@users.noreply.github.com>",
   "license": "ISC",
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
