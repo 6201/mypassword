@@ -482,13 +482,31 @@ function createWindow(): void {
   });
 }
 
-app.whenReady().then(() => {
-  db = initDatabase();
-  const settings = requireDatabase().getLockSettings();
-  const hasPassword = Boolean(settings.passwordHash && settings.passwordSalt);
-  isLocked = hasPassword;
-  createWindow();
-});
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+      return;
+    }
+
+    createWindow();
+  });
+
+  app.whenReady().then(() => {
+    db = initDatabase();
+    const settings = requireDatabase().getLockSettings();
+    const hasPassword = Boolean(settings.passwordHash && settings.passwordSalt);
+    isLocked = hasPassword;
+    createWindow();
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

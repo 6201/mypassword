@@ -1,20 +1,20 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="rotate(-34 256 256)">
+  <g transform="rotate(-33 256 256)">
+    <circle cx="358" cy="256" r="112" fill="#2DA8E6" stroke="#1F2937" stroke-width="16" />
+    <circle cx="358" cy="256" r="48" fill="#F8FAFC" stroke="#1F2937" stroke-width="12" />
+
     <path
-      d="M70 228H282V248H248V278H216V308H90V288H108V258H140V228H70Z"
-      fill="#37A8E6"
-      stroke="#2B2B2B"
+      d="M68 228H286V252H248V284H214V318H94V296H110V264H142V228H68Z"
+      fill="#35B4F2"
+      stroke="#1F2937"
       stroke-width="14"
       stroke-linejoin="round"
     />
 
-    <circle cx="360" cy="256" r="112" fill="#3FA9E0" stroke="#2B2B2B" stroke-width="14" />
-    <circle cx="360" cy="256" r="44" fill="#F4F7FA" stroke="#2B2B2B" stroke-width="12" />
-
     <path
-      d="M300 190C334 162 386 162 420 190C388 184 354 198 334 224C320 242 302 274 296 304C274 272 276 222 300 190Z"
-      fill="#58B9EA"
-      opacity="0.65"
+      d="M300 188C332 162 384 162 416 188C384 184 352 198 332 224C318 242 302 270 294 300C274 270 276 220 300 188Z"
+      fill="#79CCF7"
+      opacity="0.7"
     />
   </g>
 </svg>
