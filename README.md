@@ -10,7 +10,7 @@
 - **锁屏与自动锁定**：支持设置锁屏密码、手动锁定、空闲自动锁定。
 - **密码生成器**：可配置长度、字符类型、排除模糊字符、每类至少一个字符。
 - **分类 / 标签 / 收藏**：支持按分类管理、标签展示、收藏标记。
-- **导入导出**：支持加密备份导入导出，支持 1Password CSV / 1PIF 导入。
+- **导入导出**：支持加密备份导入导出，支持 1Password 1PUX / CSV / 1PIF 导入。
 - **搜索与过滤**：支持按关键词与分类快速筛选。
 
 ## 数据存储位置
@@ -123,7 +123,7 @@ myPassword/
 
 ## 从 1Password 导入
 
-1. 在 1Password 中导出 CSV 或 1PIF 文件。
+1. 在 1Password 中导出 1PUX、CSV 或 1PIF 文件。
 2. 在 MyPassword 中点击“备份与恢复”并选择“导入”。
 3. 选择文件并确认导入结果。
 
@@ -144,6 +144,64 @@ myPassword/
 4. 选择冲突处理策略：跳过 / 覆盖 / 重命名。
 5. 选择备份文件并完成导入。
 
+## GitHub Release 发布（维护者）
+
+### 版本与 Tag 约定
+
+- `package.json` 中的版本使用 `X.Y.Z`。
+- Git tag 使用 `vX.Y.Z`，并且必须与 `package.json.version` 一致。
+
+### 手动发布（本地）
+
+1. 更新 `package.json` 版本号并提交代码。
+2. 打包（按需选择平台）：
+
+```bash
+npm run build:win
+npm run build:mac
+npm run build:linux
+```
+
+3. 检查版本与 tag 一致性：
+
+```bash
+# macOS / Linux / Git Bash
+RELEASE_TAG=vX.Y.Z npm run release:check-tag
+
+# PowerShell
+$env:RELEASE_TAG='vX.Y.Z'; npm run release:check-tag
+
+# cmd.exe
+set RELEASE_TAG=vX.Y.Z && npm run release:check-tag
+```
+
+4. 创建 GitHub 草稿 Release 并上传 `release/` 下产物：
+
+```bash
+# macOS / Linux / Git Bash
+RELEASE_TAG=vX.Y.Z npm run release:publish:draft
+
+# PowerShell
+$env:RELEASE_TAG='vX.Y.Z'; npm run release:publish:draft
+
+# cmd.exe
+set RELEASE_TAG=vX.Y.Z && npm run release:publish:draft
+```
+
+5. 在 GitHub Release 页面确认资产与说明后，手动点击 Publish。
+
+### 自动发布（CI）
+
+- 推送 `v*` tag 会触发 `.github/workflows/release.yml`。
+- Workflow 会在 Windows/macOS/Linux 分别打包并汇总产物。
+- 最终自动创建或更新同名 **draft release**（不会直接公开发布）。
+
+### 必需凭据
+
+- 本地手动发布：需要 `gh auth login` 或设置 `GH_TOKEN`。
+- GitHub Actions 发布：使用内置 `GITHUB_TOKEN`（workflow 已配置 `contents: write`）。
+
 ## License
 
 ISC
+

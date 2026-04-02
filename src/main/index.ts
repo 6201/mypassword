@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { initDatabase, Database } from './database';
 import { generatePassword } from './password-generator';
 import { encryptExportData, decryptExportData, generateExportFilename, ExportData } from './export-import';
-import { parseOnePasswordCSV, parseOnePassword1PIF, OnePasswordEntry } from './onepassword-importer';
+import { parseOnePasswordCSV, parseOnePassword1PIF, parseOnePassword1PUX, OnePasswordEntry } from './onepassword-importer';
 import { generateSalt, hashPassword, verifyPassword } from './crypto';
 import * as fs from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -742,6 +742,7 @@ ipcMain.handle('import-from-1password', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       title: '选择 1Password 导出文件',
       filters: [
+        { name: '1Password 1PUX', extensions: ['1pux'] },
         { name: '1Password CSV', extensions: ['csv'] },
         { name: '1Password 1PIF', extensions: ['1pif'] },
         { name: '所有文件', extensions: ['*'] }
@@ -754,17 +755,22 @@ ipcMain.handle('import-from-1password', async () => {
     }
 
     const filePath = result.filePaths[0];
-    const fileContent = fs.readFileSync(filePath, 'utf-8');
     const ext = path.extname(filePath).toLowerCase();
 
     // 根据文件格式解析
     let entries: OnePasswordEntry[] = [];
-    if (ext === '.csv') {
-      entries = parseOnePasswordCSV(fileContent);
-    } else if (ext === '.1pif') {
-      entries = parseOnePassword1PIF(fileContent);
+    if (ext === '.1pux') {
+      entries = await parseOnePassword1PUX(filePath);
     } else {
-      return { success: false, error: '不支持的文件格式，请使用 CSV 或 1PIF 格式' };
+      const fileContent = fs.readFileSync(filePath, 'utf-8');
+
+      if (ext === '.csv') {
+        entries = parseOnePasswordCSV(fileContent);
+      } else if (ext === '.1pif') {
+        entries = parseOnePassword1PIF(fileContent);
+      } else {
+        return { success: false, error: '不支持的文件格式，请使用 1PUX、CSV 或 1PIF 格式' };
+      }
     }
 
     if (entries.length === 0) {

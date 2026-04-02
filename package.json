@@ -10,6 +10,9 @@
     "build:win": "node build.js --package --win",
     "build:mac": "node build.js --package --mac",
     "build:linux": "node build.js --package --linux",
+    "release:check-tag": "node -e \"const tag=process.env.GITHUB_REF_NAME||process.env.RELEASE_TAG||'';const version=process.env.npm_package_version||'';if(!tag){console.error('Missing tag: set GITHUB_REF_NAME or RELEASE_TAG');process.exit(1);}if(!version){console.error('Missing package version in npm environment');process.exit(1);}const expectedTag=`v${version}`;if(tag!==expectedTag){console.error(`Tag ${tag} does not match package version ${expectedTag}`);process.exit(1);}console.log(`Tag/version check passed: ${tag}`);\"",
+    "release:build:all": "npm run build:win && npm run build:mac && npm run build:linux",
+    "release:publish:draft": "node scripts/github/publish-draft.js",
     "test": "jest"
   },
   "build": {
@@ -35,25 +38,27 @@
       "icon": "resources/icon.ico"
     },
     "nsis": {
-      "artifactName": "${productName} Setup.${ext}",
+      "artifactName": "${productName}-${version}-setup-${os}-${arch}.${ext}",
       "installerIcon": "resources/icon.ico",
       "uninstallerIcon": "resources/icon.ico",
       "installerHeaderIcon": "resources/icon.ico"
     },
     "portable": {
-      "artifactName": "${productName}.${ext}"
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.png",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     },
     "linux": {
       "target": [
         "AppImage",
         "deb"
-      ]
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
     }
   },
   "keywords": [
@@ -69,6 +74,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/yauzl": "^2.10.3",
     "concurrently": "^9.1.2",
     "electron": "^41.1.0",
     "electron-builder": "^26.8.1",
@@ -82,6 +88,7 @@
   "dependencies": {
     "better-sqlite3": "^12.8.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "yauzl": "^2.10.0"
   }
 }

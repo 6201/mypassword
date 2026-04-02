@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate tag and version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate tag/version consistency
+        run: npm run release:check-tag
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+  build:
+    name: Build ${{ matrix.platform }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            runner: windows-latest
+            build_script: build:win
+          - platform: macos
+            runner: macos-latest
+            build_script: build:mac
+          - platform: linux
+            runner: ubuntu-latest
+            build_script: build:linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run ${{ matrix.build_script }}
+
+      - name: Validate platform artifact presence
+        shell: bash
+        run: |
+          shopt -s nullglob
+          has_file() {
+            local pattern="$1"
+            local found=( $pattern )
+            [[ ${#found[@]} -gt 0 ]]
+          }
+
+          case "${{ matrix.platform }}" in
+            windows)
+              has_file "release/*.exe" || { echo "Expected .exe artifact for windows"; exit 1; }
+              ;;
+            macos)
+              has_file "release/*.dmg" || { echo "Expected .dmg artifact for macos"; exit 1; }
+              ;;
+            linux)
+              has_file "release/*.AppImage" || has_file "release/*.deb" || { echo "Expected .AppImage or .deb artifact for linux"; exit 1; }
+              ;;
+          esac
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+            release/*.deb
+            release/*.blockmap
+            release/latest*.yml
+
+  publish:
+    name: Publish draft release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate tag/version consistency
+        run: npm run release:check-tag
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      - name: Create or update draft release
+        run: npm run release:publish:draft
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}

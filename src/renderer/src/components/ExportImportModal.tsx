@@ -349,8 +349,9 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
                 <strong>支持的格式：</strong>
               </p>
               <ul className="text-sm text-blue-800 leading-relaxed mt-2 ml-4 list-disc">
+                <li><strong>1PUX 格式</strong> - 1Password 最新导出的压缩包格式（推荐）</li>
                 <li><strong>CSV 格式</strong> - 从 1Password 导出的 CSV 文件</li>
-                <li><strong>1PIF 格式</strong> - 从 1Password 导出的 1PIF 文件</li>
+                <li><strong>1PIF 格式</strong> - 旧版导出格式（兼容）</li>
               </ul>
               <p className="text-xs text-gray-500 mt-3">
                 提示：在 1Password 中选择"文件 → 导出"来导出数据
