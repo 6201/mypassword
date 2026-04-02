@@ -90,7 +90,26 @@ function installAppDeps() {
 }
 
 function runPackager() {
-  const args = process.argv.slice(2).filter(arg => arg !== '--package');
+  const args = [];
+  let hasExplicitPublishOption = false;
+
+  for (const arg of process.argv.slice(2)) {
+    if (arg === '--package') {
+      continue;
+    }
+
+    if (arg === '--publish' || arg.startsWith('--publish=')) {
+      hasExplicitPublishOption = true;
+    }
+
+    args.push(arg);
+  }
+
+  // Prevent electron-builder from auto-publishing in CI when publish mode is not set.
+  if (!hasExplicitPublishOption) {
+    args.push('--publish', 'never');
+  }
+
   execFileSync('npx', ['electron-builder', ...args], { stdio: 'inherit', shell: true });
 }
 
