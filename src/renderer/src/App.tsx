@@ -5,6 +5,20 @@ import PasswordGenerator from './components/PasswordGenerator';
 import SearchBar from './components/SearchBar';
 import CategoryNav from './components/CategoryNav';
 import ExportImportModal from './components/ExportImportModal';
+import PasswordDetail from './components/PasswordDetail';
+
+interface PasswordRecord {
+  id: number;
+  title: string;
+  username: string;
+  password: string;
+  url?: string;
+  notes?: string;
+  category?: string;
+  tags?: string;
+  updatedAt?: number;
+  favorite?: boolean;
+}
 
 interface LockStatus {
   hasPassword: boolean;
@@ -27,7 +41,7 @@ declare global {
       lockUpdateConfig: (payload: { autoEnabled?: boolean; idleTimeoutSec?: number }) => Promise<LockStatus>;
       lockNow: () => Promise<LockStatus>;
       lockUnlock: (password: string) => Promise<LockUnlockResult>;
-      getPasswords: () => Promise<any[]>;
+      getPasswords: () => Promise<PasswordRecord[]>;
       getCategories: () => Promise<string[]>;
       addCategory: (name: string) => Promise<void>;
       renameCategory: (oldName: string, newName: string) => Promise<void>;
@@ -37,6 +51,7 @@ declare global {
       deletePassword: (id: number) => Promise<void>;
       generatePassword: (options: any) => Promise<string>;
       searchPasswords: (query: string) => Promise<any[]>;
+      resolveFavicon: (url: string) => Promise<string | null>;
       exportData: (exportPassword: string) => Promise<any>;
       importData: (importPassword: string, mergeMode: 'skip' | 'overwrite' | 'rename') => Promise<any>;
       importFrom1Password: () => Promise<any>;
@@ -78,13 +93,14 @@ function getCategoryDialogActionError(mode: CategoryDialogMode | null): string {
 }
 
 const App: React.FC = () => {
-  const [passwords, setPasswords] = useState<any[]>([]);
+  const [passwords, setPasswords] = useState<PasswordRecord[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORY);
   const [searchQuery, setSearchQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [selectedPasswordId, setSelectedPasswordId] = useState<number | null>(null);
   const [categories, setCategories] = useState<string[]>([DEFAULT_CATEGORY]);
   const [categoryDialogMode, setCategoryDialogMode] = useState<CategoryDialogMode | null>(null);
   const [categoryInput, setCategoryInput] = useState('');
@@ -152,6 +168,7 @@ const App: React.FC = () => {
       setPasswords([]);
       setCategories([DEFAULT_CATEGORY]);
       setSelectedCategory(ALL_CATEGORY);
+      setSelectedPasswordId(null);
       setSearchQuery('');
     }
 
@@ -164,7 +181,12 @@ const App: React.FC = () => {
       window.electronAPI.getCategories()
     ]);
 
-    setPasswords(passwordData || []);
+    const normalizedPasswords = (passwordData || []).map(password => ({
+      ...password,
+      favorite: Boolean(password.favorite)
+    }));
+
+    setPasswords(normalizedPasswords);
     setCategories(normalizeCategories(categoryData || []));
   };
 
@@ -260,7 +282,7 @@ const App: React.FC = () => {
     await loadData();
   };
 
-  const handleEdit = (password: any): void => {
+  const handleEdit = (password: PasswordRecord): void => {
     setEditingId(password.id);
     setShowForm(true);
   };
@@ -452,6 +474,24 @@ const App: React.FC = () => {
     return matchesCategory && matchesSearch;
   });
 
+  useEffect(() => {
+    if (filteredPasswords.length === 0) {
+      if (selectedPasswordId !== null) {
+        setSelectedPasswordId(null);
+      }
+      return;
+    }
+
+    const hasSelected = selectedPasswordId !== null && filteredPasswords.some(p => p.id === selectedPasswordId);
+    if (!hasSelected) {
+      setSelectedPasswordId(filteredPasswords[0].id);
+    }
+  }, [filteredPasswords, selectedPasswordId]);
+
+  const selectedPassword = selectedPasswordId === null
+    ? null
+    : filteredPasswords.find(password => password.id === selectedPasswordId) || null;
+
   const categoryDialogTitle = categoryDialogMode === 'add' ? '添加分类' : '重命名分类';
   const categoryDialogSubmitText = categoryDialogMode === 'add' ? '添加' : '保存';
 
@@ -554,11 +594,23 @@ const App: React.FC = () => {
           </button>
         </header>
 
-        <PasswordList
-          passwords={filteredPasswords}
-          onEdit={handleEdit}
-          onDelete={handleDeletePassword}
-        />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-w-70 max-w-90 flex-1 flex-col border-r border-gray-200 bg-white">
+            <PasswordList
+              passwords={filteredPasswords}
+              selectedId={selectedPasswordId}
+              onSelect={setSelectedPasswordId}
+            />
+          </div>
+
+          <div className="flex min-w-0 flex-[1.35] flex-col bg-gray-50/60">
+            <PasswordDetail
+              password={selectedPassword}
+              onEdit={handleEdit}
+              onDelete={handleDeletePassword}
+            />
+          </div>
+        </div>
       </div>
 
       {showForm && (

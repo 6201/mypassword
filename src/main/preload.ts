@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('generate-password', options),
   searchPasswords: (query: string): Promise<PasswordEntry[]> =>
     ipcRenderer.invoke('search-passwords', query),
+  resolveFavicon: (url: string): Promise<string | null> =>
+    ipcRenderer.invoke('resolve-favicon', url),
   // 导出/导入功能
   exportData: (exportPassword: string): Promise<any> =>
     ipcRenderer.invoke('export-data', exportPassword),
