@@ -1,6 +1,6 @@
 {
   "name": "mypassword",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "密码管理工具",
   "main": "dist/main/index.js",
   "scripts": {
