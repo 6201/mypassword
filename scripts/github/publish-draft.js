@@ -9,11 +9,39 @@ if (!tag) {
   process.exit(1);
 }
 
+function resolveGhCommand() {
+  const candidates = ['gh'];
+
+  if (process.platform === 'win32') {
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+    candidates.push('gh.exe', path.join(programFiles, 'GitHub CLI', 'gh.exe'));
+  }
+
+  for (const command of candidates) {
+    const check = cp.spawnSync(command, ['--version'], {
+      stdio: 'ignore',
+      shell: false
+    });
+
+    if ((check.status ?? 1) === 0) {
+      return command;
+    }
+  }
+
+  return null;
+}
+
+const ghCommand = resolveGhCommand();
+if (!ghCommand) {
+  console.error('GitHub CLI (gh) is required but was not found in PATH');
+  process.exit(1);
+}
+
 function runGh(args, options = {}) {
-  const result = cp.spawnSync('gh', args, {
+  const result = cp.spawnSync(ghCommand, args, {
     stdio: 'pipe',
     encoding: 'utf8',
-    shell: process.platform === 'win32',
+    shell: false,
     ...options
   });
 
@@ -22,12 +50,6 @@ function runGh(args, options = {}) {
     stdout: result.stdout || '',
     stderr: result.stderr || ''
   };
-}
-
-const ghCheck = runGh(['--version'], { stdio: 'ignore' });
-if (ghCheck.status !== 0) {
-  console.error('GitHub CLI (gh) is required but was not found in PATH');
-  process.exit(1);
 }
 
 function collectFiles(dir) {
