@@ -104,5 +104,32 @@ describe('Export/Import', () => {
       expect(decrypted.entries[0].title).toBe('中文标题 🚀');
       expect(decrypted.entries[0].password).toBe('密码！@#$%');
     });
+    test('desktop decrypts shared-core compatible .enc payload shape', () => {
+      const sampleData: ExportData = {
+        version: '1.0',
+        exportedAt: Date.now(),
+        count: 1,
+        entries: [
+          {
+            title: '跨端条目',
+            username: 'alice',
+            password: 'shared-secret',
+            url: 'https://example.com',
+            notes: 'from core',
+            category: 'Imported',
+            tags: 'sync',
+            favorite: true,
+          },
+        ],
+      };
+
+      const encrypted = encryptExportData(sampleData, testPassword);
+      const decrypted = decryptExportData(encrypted, testPassword);
+
+      expect(decrypted.version).toBe('1.0');
+      expect(decrypted.count).toBe(1);
+      expect(decrypted.entries[0].password).toBe('shared-secret');
+      expect(decrypted.entries[0].category).toBe('Imported');
+    });
   });
 });

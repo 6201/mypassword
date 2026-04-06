@@ -324,18 +324,33 @@ describe('Database', () => {
   });
 
   describe('importPasswords', () => {
-    test('导入数据时自动创建分类', () => {
+
+    test('overwrite 模式返回 updated 计数', () => {
+      db.addPassword({
+        title: 'GitHub',
+        username: 'alice',
+        password: 'old-secret',
+        url: 'https://github.com',
+      });
+
       const result = db.importPasswords([
         {
-          title: 'Imported Service',
-          username: 'imported@service.com',
-          password: 'imported-pass',
-          category: 'ImportedGroup'
+          title: 'GitHub',
+          username: 'alice',
+          password: 'new-secret',
+          url: 'https://github.com',
+          category: 'Imported',
         }
-      ], 'skip');
+      ], 'overwrite');
 
-      expect(result.imported).toBe(1);
-      expect(db.getCategories()).toContain('ImportedGroup');
+      expect(result.imported).toBe(0);
+      expect(result.skipped).toBe(0);
+      expect(result.updated).toBe(1);
+
+      const rows = db.getAllPasswords();
+      expect(rows).toHaveLength(1);
+      expect(db.getPasswordSecret((rows[0] as { id: number }).id)).toBe('new-secret');
+      expect(rows[0].category).toBe('Imported');
     });
   });
 
