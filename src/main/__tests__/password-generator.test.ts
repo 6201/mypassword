@@ -1,4 +1,4 @@
-import { generatePassword, calculatePasswordStrength } from '../password-generator';
+import { generatePassword, calculatePasswordStrength } from '@mypassword/shared-core';
 
 describe('PasswordGenerator', () => {
   describe('generatePassword', () => {

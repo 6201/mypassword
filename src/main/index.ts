@@ -1,11 +1,22 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import path from 'path';
-import { createHash } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { initDatabase, Database } from './database';
-import { generatePassword } from './password-generator';
-import { encryptExportData, decryptExportData, generateExportFilename, ExportData } from './export-import';
 import { parseOnePasswordCSV, parseOnePassword1PIF, parseOnePassword1PUX, OnePasswordEntry } from './onepassword-importer';
 import { generateSalt, hashPassword, verifyPassword } from './crypto';
+import {
+  DesktopKeyStoreAdapter,
+  DesktopCryptoAdapter,
+  DesktopStorageAdapter,
+  LOCK_SECRET_DIGEST_KEY,
+  DEVICE_KEY_UNAVAILABLE_ERROR,
+  computeLockSecretDigest,
+} from '../shared/desktop-adapter-map';
+import {
+  classifyLockError,
+  type VaultErrorCode,
+  createVaultService,
+} from '@mypassword/shared-core';
 import * as fs from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -382,8 +393,16 @@ interface LockConfigPayload {
   idleTimeoutSec?: number;
 }
 
+interface LockUnlockResult {
+  success: boolean;
+  status: LockStatus;
+  error?: string;
+  errorCode?: VaultErrorCode;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let db: Database | null = null;
+let vaultService: any | null = null; // We'll initialize this properly
 let isLocked = false;
 
 function requireDatabase(): Database {
@@ -391,6 +410,13 @@ function requireDatabase(): Database {
     throw new Error('数据库未初始化');
   }
   return db;
+}
+
+function requireVaultService(): any {
+  if (!vaultService) {
+    throw new Error('VaultService 未初始化');
+  }
+  return vaultService;
 }
 
 function validateLockPassword(password: string): string {
@@ -417,18 +443,45 @@ function getLockStatus(): LockStatus {
   };
 }
 
-function verifyLockPassword(rawPassword: string): boolean {
+async function verifyLockPassword(rawPassword: string): Promise<boolean> {
   const settings = requireDatabase().getLockSettings();
   if (!settings.passwordHash || !settings.passwordSalt) {
     return false;
   }
-  return verifyPassword(rawPassword, Buffer.from(settings.passwordSalt, 'hex'), settings.passwordHash);
+
+  const isPasswordValid = verifyPassword(rawPassword, Buffer.from(settings.passwordSalt, 'hex'), settings.passwordHash);
+  if (!isPasswordValid) {
+    return false;
+  }
+
+  const database = requireDatabase();
+  const digest = database.getSetting(LOCK_SECRET_DIGEST_KEY);
+  if (!digest) {
+    return true;
+  }
+
+  const adapter = createDesktopLockSecretAdapter(database);
+  const lockSecretRaw = await adapter.readLockSecret();
+  if (!lockSecretRaw) {
+    throw new Error(DEVICE_KEY_UNAVAILABLE_ERROR);
+  }
+
+  if (computeLockSecretDigest(lockSecretRaw) !== digest) {
+    throw new Error(DEVICE_KEY_UNAVAILABLE_ERROR);
+  }
+
+  return true;
 }
 
-function setLockPassword(password: string): void {
+function setLockPassword(password: string): Promise<void> {
   const salt = generateSalt();
   const hash = hashPassword(password, salt);
-  requireDatabase().setLockPassword(hash, salt.toString('hex'));
+  const database = requireDatabase();
+  database.setLockPassword(hash, salt.toString('hex'));
+
+  const adapter = createDesktopLockSecretAdapter(database);
+  const token = randomBytes(32).toString('hex');
+  return adapter.storeLockSecret(token);
 }
 
 function ensureUnlocked(): void {
@@ -436,6 +489,27 @@ function ensureUnlocked(): void {
   if (status.hasPassword && status.isLocked) {
     throw new Error('应用已锁定，请先解锁');
   }
+}
+
+function createDesktopLockSecretAdapter(database: Database): DesktopKeyStoreAdapter {
+  return new DesktopKeyStoreAdapter({
+    getSetting: (key: string) => database.getSetting(key),
+    setSetting: (key: string, value: string | null) => {
+      database.setSetting(key, value);
+    }
+  });
+}
+
+async function ensureLockSecretProvisionedAfterUnlock(): Promise<void> {
+  const database = requireDatabase();
+  const existingDigest = database.getSetting(LOCK_SECRET_DIGEST_KEY);
+  if (existingDigest) {
+    return;
+  }
+
+  const adapter = createDesktopLockSecretAdapter(database);
+  const token = randomBytes(32).toString('hex');
+  await adapter.storeLockSecret(token);
 }
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
@@ -499,8 +573,20 @@ if (!gotSingleInstanceLock) {
     createWindow();
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     db = initDatabase();
+    const storageAdapter = new DesktopStorageAdapter(db);
+    const keystoreAdapter = new DesktopKeyStoreAdapter({
+      getSetting: (key: string) => db!.getSetting(key),
+      setSetting: (key: string, value: string | null) => {
+        db!.setSetting(key, value);
+      }
+    });
+    const cryptoAdapter = new DesktopCryptoAdapter();
+
+    vaultService = createVaultService(storageAdapter, keystoreAdapter, cryptoAdapter);
+    await vaultService.initialize();
+
     const settings = requireDatabase().getLockSettings();
     const hasPassword = Boolean(settings.passwordHash && settings.passwordSalt);
     isLocked = hasPassword;
@@ -519,7 +605,7 @@ ipcMain.handle('lock-get-status', () => {
   return getLockStatus();
 });
 
-ipcMain.handle('lock-set-password', (_, payload: LockSetPasswordPayload) => {
+ipcMain.handle('lock-set-password', async (_, payload: LockSetPasswordPayload) => {
   const nextPassword = validateLockPassword(payload?.newPassword || '');
   const status = getLockStatus();
 
@@ -527,12 +613,13 @@ ipcMain.handle('lock-set-password', (_, payload: LockSetPasswordPayload) => {
     if (!payload?.currentPassword) {
       throw new Error('请输入当前锁屏密码');
     }
-    if (!verifyLockPassword(payload.currentPassword)) {
+    const isCurrentPasswordValid = await verifyLockPassword(payload.currentPassword);
+    if (!isCurrentPasswordValid) {
       throw new Error('当前锁屏密码错误');
     }
   }
 
-  setLockPassword(nextPassword);
+  await setLockPassword(nextPassword);
   return getLockStatus();
 });
 
@@ -556,7 +643,7 @@ ipcMain.handle('lock-now', () => {
   return getLockStatus();
 });
 
-ipcMain.handle('lock-unlock', (_, payload: { password: string }) => {
+ipcMain.handle('lock-unlock', async (_, payload: { password: string }): Promise<LockUnlockResult> => {
   const status = getLockStatus();
 
   if (!status.hasPassword || !status.isLocked) {
@@ -564,10 +651,24 @@ ipcMain.handle('lock-unlock', (_, payload: { password: string }) => {
   }
 
   const password = payload?.password || '';
-  if (!verifyLockPassword(password)) {
+  try {
+    const isPasswordValid = await verifyLockPassword(password);
+    if (!isPasswordValid) {
+      return {
+        success: false,
+        error: '密码错误',
+        errorCode: 'INVALID_PASSWORD',
+        status: getLockStatus()
+      };
+    }
+
+    await ensureLockSecretProvisionedAfterUnlock();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '解锁失败';
     return {
       success: false,
-      error: '密码错误',
+      error: message,
+      errorCode: classifyLockError(message),
       status: getLockStatus()
     };
   }
@@ -624,8 +725,10 @@ ipcMain.handle('delete-password', (_, id) => {
   return requireDatabase().deletePassword(id);
 });
 
-ipcMain.handle('generate-password', (_, options) => {
-  ensureUnlocked();
+ipcMain.handle('generate-password', async (_, options) => {
+  // 生成密码是一个工具功能，不受锁定状态影响
+  // 动态导入以确保在运行时正确加载
+  const { generatePassword } = require('@mypassword/shared-core');
   return generatePassword(options);
 });
 
@@ -644,26 +747,15 @@ ipcMain.handle('export-data', async (_, exportPassword: string) => {
   ensureUnlocked();
 
   try {
-    const database = requireDatabase();
+    const vaultSvc = requireVaultService();
 
-    // 获取所有密码数据
-    const entries = database.exportAllData();
-
-    // 构建导出数据
-    const exportData: ExportData = {
-      version: '1.0',
-      exportedAt: Date.now(),
-      count: entries.length,
-      entries: entries.map(({ id, createdAt, updatedAt, ...rest }) => rest)
-    };
-
-    // 加密数据
-    const encryptedData = encryptExportData(exportData, exportPassword);
+    // 使用 core 库的导出功能
+    const encryptedData = await vaultSvc.exportVault(exportPassword);
 
     // 选择保存位置
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: '保存备份文件',
-      defaultPath: generateExportFilename(),
+      defaultPath: `mypassword-backup-${new Date().toISOString().slice(0, 10)}-${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')}.enc`,
       filters: [{ name: 'MyPassword 备份', extensions: ['enc'] }],
       properties: ['createDirectory', 'showOverwriteConfirmation']
     });
@@ -673,12 +765,25 @@ ipcMain.handle('export-data', async (_, exportPassword: string) => {
     }
 
     // 写入文件
-    fs.writeFileSync(result.filePath, encryptedData);
+    fs.writeFileSync(result.filePath, Buffer.from(encryptedData));
+
+    // 获取导出的条目数（需要从导出数据中解析）
+    let count = 0;
+    try {
+      // Since the export is encrypted, we can't determine the exact count without decrypting
+      // For now, we'll get the count from the database
+      const database = requireDatabase();
+      const entries = database.exportAllData();
+      count = entries.length;
+    } catch (err) {
+      // If we can't get the count from the DB, we'll set it to 0
+      count = 0;
+    }
 
     return {
       success: true,
       filePath: result.filePath,
-      count: entries.length
+      count: count
     };
   } catch (error: unknown) {
     return { success: false, error: getErrorMessage(error, '导出失败') };
@@ -690,7 +795,7 @@ ipcMain.handle('import-data', async (_, importPassword: string, mergeMode: 'skip
   ensureUnlocked();
 
   try {
-    const database = requireDatabase();
+    const vaultSvc = requireVaultService();
 
     // 选择要导入的文件
     const result = await dialog.showOpenDialog(mainWindow!, {
@@ -706,16 +811,8 @@ ipcMain.handle('import-data', async (_, importPassword: string, mergeMode: 'skip
     const filePath = result.filePaths[0];
     const encryptedData = fs.readFileSync(filePath);
 
-    // 解密数据
-    const exportData = decryptExportData(encryptedData, importPassword);
-
-    // 验证数据格式
-    if (!exportData.version || !exportData.entries || !Array.isArray(exportData.entries)) {
-      return { success: false, error: '无效的备份文件格式' };
-    }
-
-    // 导入数据
-    const importResult = database.importPasswords(exportData.entries, mergeMode);
+    // 使用 core 库的导入功能
+    const importResult = await vaultSvc.importVault(new Uint8Array(encryptedData), importPassword, mergeMode);
 
     return {
       success: true,

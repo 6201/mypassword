@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { VaultErrorCode } from '@mypassword/shared-core';
 
 export interface PasswordEntry {
   id?: number;
@@ -46,7 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   lockSetPassword: (payload: LockSetPasswordPayload): Promise<LockStatus> => ipcRenderer.invoke('lock-set-password', payload),
   lockUpdateConfig: (payload: LockConfigPayload): Promise<LockStatus> => ipcRenderer.invoke('lock-update-config', payload),
   lockNow: (): Promise<LockStatus> => ipcRenderer.invoke('lock-now'),
-  lockUnlock: (password: string): Promise<{ success: boolean; error?: string; status: LockStatus }> => ipcRenderer.invoke('lock-unlock', { password }),
+  lockUnlock: (password: string): Promise<{ success: boolean; error?: string; errorCode?: VaultErrorCode; status: LockStatus }> => ipcRenderer.invoke('lock-unlock', { password }),
   getPasswords: (): Promise<PasswordEntry[]> => ipcRenderer.invoke('get-passwords'),
   getPasswordSecret: (id: number): Promise<string> => ipcRenderer.invoke('get-password-secret', id),
   getCategories: (): Promise<string[]> => ipcRenderer.invoke('get-categories'),

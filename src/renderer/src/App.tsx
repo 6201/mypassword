@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import type { VaultErrorCode } from '@mypassword/shared-core';
 import PasswordList from './components/PasswordList';
 import PasswordForm from './components/PasswordForm';
 import PasswordGenerator from './components/PasswordGenerator';
@@ -34,6 +35,7 @@ interface LockStatus {
 interface LockUnlockResult {
   success: boolean;
   error?: string;
+  errorCode?: VaultErrorCode;
   status: LockStatus;
 }
 
@@ -87,6 +89,19 @@ function getErrorMessage(error: unknown, fallbackMessage: string): string {
   }
 
   return fallbackMessage;
+}
+
+function mapUnlockErrorMessage(result: LockUnlockResult): string {
+  if (result.errorCode === 'INVALID_PASSWORD') {
+    return '密码错误';
+  }
+  if (result.errorCode === 'DEVICE_KEY_UNAVAILABLE') {
+    return '设备密钥不可用，请重置锁屏密码';
+  }
+  if (result.errorCode === 'LOCK_PASSWORD_REQUIRED') {
+    return '请输入锁屏密码';
+  }
+  return result.error || '解锁失败';
 }
 
 function shouldTrackAutoLock(status: LockStatus): boolean {
@@ -520,7 +535,7 @@ const App: React.FC = () => {
 
     const result = await window.electronAPI.lockUnlock(unlockPassword);
     if (!result.success) {
-      setUnlockError(result.error || '解锁失败');
+      setUnlockError(mapUnlockErrorMessage(result));
       return;
     }
 

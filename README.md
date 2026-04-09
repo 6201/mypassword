@@ -95,7 +95,7 @@ myPassword/
 │   │   ├── index.ts                 # IPC / 主进程逻辑
 │   │   ├── database.ts              # 数据库操作
 │   │   ├── crypto.ts                # 加密模块
-│   │   ├── password-generator.ts    # 密码生成器
+│   │   ├── database.ts              # 数据库操作
 │   │   ├── onepassword-importer.ts  # 1Password 导入
 │   │   └── preload.ts               # 预加载脚本
 │   └── renderer/                    # React 渲染进程
