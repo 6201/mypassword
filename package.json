@@ -87,7 +87,7 @@
     "wait-on": "^8.0.3"
   },
   "dependencies": {
-    "@mypassword/shared-core": "0.1.0",
+    "@mypassword/shared-core": "file:../mypassword-core",
     "better-sqlite3": "^12.8.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
