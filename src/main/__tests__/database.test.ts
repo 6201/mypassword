@@ -519,6 +519,27 @@ describe('Database', () => {
       expect(db.getCategories()).toContain('Error');
     });
 
+    test('reuses the existing Error category spelling when target input has extra whitespace or different case', () => {
+      const brokenDefaultId = db.addPassword({
+        title: 'Broken Default',
+        username: 'broken-default@example.com',
+        password: 'broken-default-secret',
+        category: 'Default',
+      });
+
+      db.addCategory('Error');
+      db.updatePasswordCiphertext(brokenDefaultId, {
+        password: 'enc:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      });
+
+      const movedCount = db.reclassifyDecryptFailingDefaultEntries(' error ');
+
+      expect(movedCount).toBe(1);
+      expect(db.getPasswordCiphertextById(brokenDefaultId)?.category).toBe('Error');
+      expect(db.getCategories().filter(category => category === 'Error')).toHaveLength(1);
+      expect(db.getCategories().filter(category => category.toLowerCase() === 'error')).toEqual(['Error']);
+    });
+
     test('is a no-op when no broken Default entries exist', () => {
       db.addPassword({
         title: 'Healthy Default',

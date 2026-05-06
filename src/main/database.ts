@@ -166,6 +166,11 @@ export class Database {
     return normalized;
   }
 
+  private resolveExistingCategoryName(name: string): string | null {
+    const row = this.db.prepare('SELECT name FROM categories WHERE name = ? COLLATE NOCASE LIMIT 1').get(name) as { name: string } | undefined;
+    return row?.name ?? null;
+  }
+
   private ensureCategoryExists(name: string): void {
     this.db.prepare('INSERT OR IGNORE INTO categories (name) VALUES (?)').run(name);
   }
@@ -471,6 +476,7 @@ export class Database {
   reclassifyDecryptFailingDefaultEntries(targetCategory: string): number {
     const normalizedTargetCategory = this.normalizeCategoryName(targetCategory);
     this.ensureCategoryExists(normalizedTargetCategory);
+    const resolvedTargetCategory = this.resolveExistingCategoryName(normalizedTargetCategory) ?? normalizedTargetCategory;
 
     const rows = this.getAllPasswordCiphertexts();
     const failingDefaultIds: number[] = [];
@@ -501,7 +507,7 @@ export class Database {
 
     const transaction = this.db.transaction((ids: number[]) => {
       for (const id of ids) {
-        updateStmt.run(normalizedTargetCategory, id);
+        updateStmt.run(resolvedTargetCategory, id);
       }
     });
 
