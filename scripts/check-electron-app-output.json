@@ -1,0 +1,7 @@
+{
+  "electronVersion": "41.1.0",
+  "nodeVersion": "24.14.0",
+  "runAsNode": null,
+  "hasApp": true,
+  "hasWhenReady": true
+}
