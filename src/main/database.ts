@@ -27,6 +27,11 @@ export interface LockSettings {
   idleTimeoutSec: number;
 }
 
+export interface PasswordDecryptScanResult {
+  totalEntries: number;
+  failingEntryIds: string[];
+}
+
 const DEFAULT_CATEGORY = 'Default';
 const IMPORTED_CATEGORY = 'Imported';
 const RESERVED_CATEGORY = 'All';
@@ -40,6 +45,7 @@ const PASSWORDS_MIGRATION_COMPLETED_AT_KEY = 'crypto.migration.passwords.v1.comp
 const PASSWORDS_MIGRATION_BACKUP_PATH_KEY = 'crypto.migration.passwords.v1.backupPath';
 const DATA_ENCRYPTION_KEY_SAFE_PREFIX = 'safe:v1:';
 const DATA_ENCRYPTION_KEY_PLAIN_PREFIX = 'plain:v1:';
+const PASSWORD_FIELD_PREFIX = 'enc:v1:';
 const DEFAULT_LOCK_IDLE_TIMEOUT_SEC = 300;
 const MIN_LOCK_IDLE_TIMEOUT_SEC = 60;
 const MAX_LOCK_IDLE_TIMEOUT_SEC = 3600;
@@ -384,7 +390,7 @@ export class Database {
   }
 
   getAllPasswords(): PasswordSummaryEntry[] {
-    const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY title');
+    const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY updatedAt DESC, title');
     return this.mapSummaryRows(stmt.all() as PasswordEntry[]);
   }
 
@@ -397,10 +403,132 @@ export class Database {
     return this.decryptAtRestPassword(row.password);
   }
 
+  recoverPasswordSecretFromBackup(id: number): string | null {
+    const backupPath = this.getSetting(PASSWORDS_MIGRATION_BACKUP_PATH_KEY);
+    if (!backupPath || !fs.existsSync(backupPath)) {
+      return null;
+    }
+
+    const currentRow = this.getPasswordCiphertextById(id);
+    if (!currentRow) {
+      return null;
+    }
+
+    const backupDb = new DatabaseType(backupPath, { readonly: true });
+    try {
+      let row = backupDb.prepare('SELECT password FROM passwords WHERE id = ?').get(id) as { password: string } | undefined;
+
+      if (!row) {
+        row = backupDb.prepare(`
+          SELECT password
+          FROM passwords
+          WHERE title = ?
+            AND username = ?
+            AND IFNULL(url, '') = IFNULL(?, '')
+          ORDER BY id DESC
+          LIMIT 1
+        `).get(currentRow.title, currentRow.username, currentRow.url ?? null) as { password: string } | undefined;
+      }
+
+      if (!row) {
+        const usernameMatches = backupDb.prepare(`
+          SELECT id, title, username, url
+          FROM passwords
+          WHERE username = ?
+          ORDER BY id DESC
+          LIMIT 5
+        `).all(currentRow.username) as Array<{ id: number; title: string; username: string; url?: string | null }>;
+
+        const titleMatches = backupDb.prepare(`
+          SELECT id, title, username, url
+          FROM passwords
+          WHERE title = ?
+          ORDER BY id DESC
+          LIMIT 5
+        `).all(currentRow.title) as Array<{ id: number; title: string; username: string; url?: string | null }>;
+
+        console.warn('[PASSWORD_RECOVERY] backup lookup candidates', {
+          id,
+          current: {
+            title: currentRow.title,
+            username: currentRow.username,
+            url: currentRow.url ?? null,
+          },
+          usernameMatches,
+          titleMatches,
+        });
+
+        return null;
+      }
+
+      const rawPassword = row.password || '';
+      if (rawPassword.startsWith(PASSWORD_FIELD_PREFIX)) {
+        return null;
+      }
+
+      this.updatePasswordCiphertext(id, {
+        password: this.encryptAtRestPassword(rawPassword),
+      });
+      return rawPassword;
+    } finally {
+      backupDb.close();
+    }
+  }
+
+  scanPasswordDecryptFailures(): PasswordDecryptScanResult {
+    const rows = this.getAllPasswordCiphertexts();
+    const failingEntryIds: string[] = [];
+
+    for (const row of rows) {
+      try {
+        this.decryptAtRestPassword(row.password);
+      } catch {
+        if (row.id !== undefined) {
+          failingEntryIds.push(String(row.id));
+        }
+      }
+    }
+
+    return {
+      totalEntries: rows.length,
+      failingEntryIds,
+    };
+  }
+
+  getPasswordCiphertextById(id: number): PasswordEntry | undefined {
+    const stmt = this.db.prepare('SELECT * FROM passwords WHERE id = ?');
+    const row = stmt.get(id) as PasswordEntry | undefined;
+    return row ? {
+      ...row,
+      favorite: Boolean(row.favorite)
+    } : undefined;
+  }
+
   getPasswordById(id: number): PasswordEntry | undefined {
     const stmt = this.db.prepare('SELECT * FROM passwords WHERE id = ?');
     const row = stmt.get(id) as PasswordEntry | undefined;
     return row ? this.mapPasswordRow(row) : undefined;
+  }
+
+  addPasswordCiphertext(entry: Omit<PasswordEntry, 'id' | 'createdAt' | 'updatedAt'>): number {
+    const category = this.normalizePasswordCategory(entry.category);
+    this.ensureCategoryExists(category);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO passwords (title, username, password, url, notes, category, tags, favorite)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      entry.title,
+      entry.username,
+      entry.password,
+      entry.url || null,
+      entry.notes || null,
+      category,
+      entry.tags || null,
+      entry.favorite ? 1 : 0
+    );
+    return result.lastInsertRowid as number;
   }
 
   addPassword(entry: Omit<PasswordEntry, 'id' | 'createdAt' | 'updatedAt'>): number {
@@ -422,6 +550,34 @@ export class Database {
       entry.favorite ? 1 : 0
     );
     return result.lastInsertRowid as number;
+  }
+
+  updatePasswordCiphertext(id: number, entry: Partial<PasswordEntry>): void {
+    const existing = this.getPasswordCiphertextById(id);
+    if (!existing) {
+      throw new Error(`Password entry with id ${id} not found`);
+    }
+
+    const category = this.normalizePasswordCategory(entry.category ?? existing.category);
+    this.ensureCategoryExists(category);
+
+    const stmt = this.db.prepare(`
+      UPDATE passwords
+      SET title = ?, username = ?, password = ?, url = ?, notes = ?,
+          category = ?, tags = ?, favorite = ?, updatedAt = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+    stmt.run(
+      entry.title ?? existing.title,
+      entry.username ?? existing.username,
+      entry.password ?? existing.password,
+      entry.url ?? existing.url ?? null,
+      entry.notes ?? existing.notes ?? null,
+      category,
+      entry.tags ?? existing.tags ?? null,
+      (entry.favorite ?? existing.favorite) ? 1 : 0,
+      id
+    );
   }
 
   updatePassword(id: number, entry: Partial<PasswordEntry>): void {
@@ -461,7 +617,7 @@ export class Database {
     const stmt = this.db.prepare(`
       SELECT * FROM passwords
       WHERE title LIKE ? OR username LIKE ? OR url LIKE ? OR notes LIKE ?
-      ORDER BY title
+      ORDER BY updatedAt DESC, title
     `);
     const searchPattern = `%${query}%`;
     return this.mapSummaryRows(stmt.all(searchPattern, searchPattern, searchPattern, searchPattern) as PasswordEntry[]);
@@ -552,11 +708,19 @@ export class Database {
     this.db.close();
   }
 
+  getAllPasswordCiphertexts(): PasswordEntry[] {
+    const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY updatedAt DESC');
+    return (stmt.all() as PasswordEntry[]).map(row => ({
+      ...row,
+      favorite: Boolean(row.favorite)
+    }));
+  }
+
   /**
    * 导出所有密码数据（用于备份）
    */
   exportAllData(): PasswordEntry[] {
-    const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY createdAt');
+    const stmt = this.db.prepare('SELECT * FROM passwords ORDER BY updatedAt DESC');
     return this.mapPasswordRows(stmt.all() as PasswordEntry[]);
   }
 

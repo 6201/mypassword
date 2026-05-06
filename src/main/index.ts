@@ -1,8 +1,13 @@
+import { registerDiagnosticIpcHandlers } from './diagnostics';
+import { registerBackupSettingsHandlers } from './backup-settings';
+import { configurePeriodicBackupScheduler } from './backup-scheduler-config';
+import type { PeriodicBackupScheduler } from './backup-scheduler';
+import { registerOnePasswordImportHandler } from './onepassword-import-handler';
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import path from 'path';
 import { createHash, randomBytes } from 'crypto';
 import { initDatabase, Database } from './database';
-import { parseOnePasswordCSV, parseOnePassword1PIF, parseOnePassword1PUX, OnePasswordEntry } from './onepassword-importer';
+import { parseOnePasswordCSV, parseOnePassword1PIF, parseOnePassword1PUX } from './onepassword-importer';
 import { generateSalt, hashPassword, verifyPassword } from './crypto';
 import {
   DesktopKeyStoreAdapter,
@@ -403,7 +408,9 @@ interface LockUnlockResult {
 let mainWindow: BrowserWindow | null = null;
 let db: Database | null = null;
 let vaultService: any | null = null; // We'll initialize this properly
+let periodicBackupScheduler: PeriodicBackupScheduler | null = null;
 let isLocked = false;
+let isAppInitialized = false;
 
 function requireDatabase(): Database {
   if (!db) {
@@ -512,12 +519,39 @@ async function ensureLockSecretProvisionedAfterUnlock(): Promise<void> {
   await adapter.storeLockSecret(token);
 }
 
+function reloadPeriodicBackupScheduler(): void {
+  periodicBackupScheduler?.stop();
+  periodicBackupScheduler = configurePeriodicBackupScheduler({
+    getVaultService: requireVaultService,
+    getSetting: (key: string) => requireDatabase().getSetting(key),
+  });
+}
+
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }
 
   return fallbackMessage;
+}
+
+async function buildExportDiagnostics(): Promise<{ totalEntries: number; failingEntryIds: string[] }> {
+  const svc = requireVaultService();
+  const summaries = await svc.listSummaries();
+  const failingEntryIds: string[] = [];
+
+  for (const summary of summaries) {
+    try {
+      await svc.getPlaintextPassword(summary.id);
+    } catch {
+      failingEntryIds.push(summary.id);
+    }
+  }
+
+  return {
+    totalEntries: summaries.length,
+    failingEntryIds,
+  };
 }
 
 function isCryptoImportError(error: unknown): boolean {
@@ -562,6 +596,11 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
+    if (!isAppInitialized) {
+      app.quit();
+      return;
+    }
+
     if (mainWindow) {
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
@@ -574,23 +613,33 @@ if (!gotSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
-    db = initDatabase();
-    const storageAdapter = new DesktopStorageAdapter(db);
-    const keystoreAdapter = new DesktopKeyStoreAdapter({
-      getSetting: (key: string) => db!.getSetting(key),
-      setSetting: (key: string, value: string | null) => {
-        db!.setSetting(key, value);
-      }
-    });
-    const cryptoAdapter = new DesktopCryptoAdapter();
+    try {
+      db = initDatabase();
+      const storageAdapter = new DesktopStorageAdapter(db);
+      const keystoreAdapter = new DesktopKeyStoreAdapter({
+        getSetting: (key: string) => db!.getSetting(key),
+        setSetting: (key: string, value: string | null) => {
+          db!.setSetting(key, value);
+        }
+      });
+      const cryptoAdapter = new DesktopCryptoAdapter();
 
-    vaultService = createVaultService(storageAdapter, keystoreAdapter, cryptoAdapter);
-    await vaultService.initialize();
+      vaultService = createVaultService(storageAdapter, keystoreAdapter, cryptoAdapter);
+      await vaultService.initialize();
+      periodicBackupScheduler = configurePeriodicBackupScheduler({
+        getVaultService: requireVaultService,
+        getSetting: (key: string) => db!.getSetting(key),
+      });
 
-    const settings = requireDatabase().getLockSettings();
-    const hasPassword = Boolean(settings.passwordHash && settings.passwordSalt);
-    isLocked = hasPassword;
-    createWindow();
+      const settings = requireDatabase().getLockSettings();
+      const hasPassword = Boolean(settings.passwordHash && settings.passwordSalt);
+      isLocked = hasPassword;
+      isAppInitialized = true;
+      createWindow();
+    } catch (error) {
+      console.error('App initialization failed:', error);
+      app.quit();
+    }
   });
 }
 
@@ -601,6 +650,39 @@ app.on('window-all-closed', () => {
 });
 
 // IPC Handlers
+registerDiagnosticIpcHandlers(ipcMain, requireDatabase);
+registerBackupSettingsHandlers({
+  ipcMainLike: ipcMain,
+  getSetting: (key: string) => requireDatabase().getSetting(key),
+  setSetting: (key: string, value: string | null) => requireDatabase().setSetting(key, value),
+  chooseDirectory: () => dialog.showOpenDialog(mainWindow!, {
+    title: '选择备份目录',
+    properties: ['openDirectory', 'createDirectory'],
+  }),
+  reloadScheduler: reloadPeriodicBackupScheduler,
+});
+registerOnePasswordImportHandler({
+  ipcMainLike: ipcMain,
+  ensureUnlocked,
+  getVaultService: requireVaultService,
+  showOpenDialog: () => dialog.showOpenDialog(mainWindow!, {
+    title: '选择 1Password 导出文件',
+    filters: [
+      { name: '1Password 1PUX', extensions: ['1pux'] },
+      { name: '1Password CSV', extensions: ['csv'] },
+      { name: '1Password 1PIF', extensions: ['1pif'] },
+      { name: '所有文件', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  }),
+  readFileSync: (filePath: string, encoding: 'utf-8') => fs.readFileSync(filePath, encoding),
+  parseOnePasswordCSV,
+  parseOnePassword1PIF,
+  parseOnePassword1PUX,
+  getBasename: path.basename,
+  getExtension: path.extname,
+});
+
 ipcMain.handle('lock-get-status', () => {
   return getLockStatus();
 });
@@ -620,6 +702,9 @@ ipcMain.handle('lock-set-password', async (_, payload: LockSetPasswordPayload) =
   }
 
   await setLockPassword(nextPassword);
+  const svc = requireVaultService();
+  await svc.initialize();
+  await svc.unlock(nextPassword);
   return getLockStatus();
 });
 
@@ -633,13 +718,15 @@ ipcMain.handle('lock-update-config', (_, payload: LockConfigPayload) => {
   return getLockStatus();
 });
 
-ipcMain.handle('lock-now', () => {
+ipcMain.handle('lock-now', async () => {
   const status = getLockStatus();
   if (!status.hasPassword) {
     throw new Error('请先设置锁屏密码');
   }
 
   isLocked = true;
+  const svc = requireVaultService();
+  await svc.lock('manual');
   return getLockStatus();
 });
 
@@ -654,6 +741,17 @@ ipcMain.handle('lock-unlock', async (_, payload: { password: string }): Promise<
   try {
     const isPasswordValid = await verifyLockPassword(password);
     if (!isPasswordValid) {
+      return {
+        success: false,
+        error: '密码错误',
+        errorCode: 'INVALID_PASSWORD',
+        status: getLockStatus()
+      };
+    }
+
+    const svc = requireVaultService();
+    const didUnlockService = await svc.unlock(password);
+    if (!didUnlockService) {
       return {
         success: false,
         error: '密码错误',
@@ -680,49 +778,109 @@ ipcMain.handle('lock-unlock', async (_, payload: { password: string }): Promise<
   };
 });
 
-ipcMain.handle('get-passwords', () => {
+ipcMain.handle('get-passwords', async () => {
   ensureUnlocked();
-  return requireDatabase().getAllPasswords();
+  const svc = requireVaultService();
+  return svc.listSummaries();
 });
 
-ipcMain.handle('get-password-secret', (_, id: number) => {
+ipcMain.handle('get-password-secret', async (_, id: string) => {
   ensureUnlocked();
-  return requireDatabase().getPasswordSecret(id);
+  const svc = requireVaultService();
+  try {
+    return await svc.getPlaintextPassword(id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const numericId = Number(id);
+    if (!Number.isInteger(numericId) || !message.includes('authenticate data')) {
+      throw error;
+    }
+
+    console.warn('[PASSWORD_RECOVERY] decrypt failed, attempting backup recovery', {
+      id,
+      numericId,
+      message,
+    });
+
+    const recovered = requireDatabase().recoverPasswordSecretFromBackup(numericId);
+    if (recovered === null) {
+      console.warn('[PASSWORD_RECOVERY] backup recovery missed', {
+        id,
+        numericId,
+      });
+      throw error;
+    }
+
+    console.warn('[PASSWORD_RECOVERY] backup recovery succeeded', {
+      id,
+      numericId,
+      recoveredLength: recovered.length,
+    });
+
+    return recovered;
+  }
 });
 
-ipcMain.handle('get-categories', () => {
+ipcMain.handle('get-categories', async () => {
   ensureUnlocked();
-  return requireDatabase().getCategories();
+  const svc = requireVaultService();
+  return svc.listCategories();
 });
 
-ipcMain.handle('add-category', (_, name: string) => {
+ipcMain.handle('add-category', async (_, name: string) => {
   ensureUnlocked();
-  return requireDatabase().addCategory(name);
+  const svc = requireVaultService();
+  return svc.addCategory(name);
 });
 
-ipcMain.handle('rename-category', (_, oldName: string, newName: string) => {
+ipcMain.handle('rename-category', async (_, oldName: string, newName: string) => {
   ensureUnlocked();
-  return requireDatabase().renameCategory(oldName, newName);
+  const svc = requireVaultService();
+  return svc.renameCategory(oldName, newName);
 });
 
-ipcMain.handle('delete-category', (_, name: string) => {
+ipcMain.handle('delete-category', async (_, name: string) => {
   ensureUnlocked();
-  return requireDatabase().deleteCategory(name);
+  const svc = requireVaultService();
+  return svc.deleteCategory(name);
 });
 
-ipcMain.handle('add-password', (_, entry) => {
+ipcMain.handle('add-password', async (_, entry) => {
   ensureUnlocked();
-  return requireDatabase().addPassword(entry);
+  const svc = requireVaultService();
+  return svc.createEntry({
+    title: entry.title || '',
+    username: entry.username || '',
+    plaintextPassword: entry.password || '',
+    urls: entry.urls,
+    url: entry.url,
+    notes: entry.notes,
+    category: entry.category,
+    tags: entry.tags,
+    favorite: entry.favorite,
+  });
 });
 
-ipcMain.handle('update-password', (_, id, entry) => {
+ipcMain.handle('update-password', async (_, id: string, entry) => {
   ensureUnlocked();
-  return requireDatabase().updatePassword(id, entry);
+  const svc = requireVaultService();
+  const patch: any = {};
+  if (entry.title !== undefined) patch.title = entry.title;
+  if (entry.username !== undefined) patch.username = entry.username;
+  if (entry.password !== undefined) patch.plaintextPassword = entry.password;
+  if (entry.urls !== undefined) patch.urls = entry.urls;
+  if (entry.url !== undefined) patch.url = entry.url;
+  if (entry.notes !== undefined) patch.notes = entry.notes;
+  if (entry.category !== undefined) patch.category = entry.category;
+  if (entry.tags !== undefined) patch.tags = entry.tags;
+  if (entry.favorite !== undefined) patch.favorite = entry.favorite;
+  return svc.updateEntry(id, patch);
 });
 
-ipcMain.handle('delete-password', (_, id) => {
+ipcMain.handle('delete-password', async (_, id: string) => {
   ensureUnlocked();
-  return requireDatabase().deletePassword(id);
+  const svc = requireVaultService();
+  return svc.deleteEntry(id);
 });
 
 ipcMain.handle('generate-password', async (_, options) => {
@@ -732,9 +890,10 @@ ipcMain.handle('generate-password', async (_, options) => {
   return generatePassword(options);
 });
 
-ipcMain.handle('search-passwords', (_, query) => {
+ipcMain.handle('search-passwords', async (_, query) => {
   ensureUnlocked();
-  return requireDatabase().searchPasswords(query);
+  const svc = requireVaultService();
+  return svc.searchSummaries(query);
 });
 
 ipcMain.handle('resolve-favicon', async (_, rawUrl: string) => {
@@ -786,7 +945,22 @@ ipcMain.handle('export-data', async (_, exportPassword: string) => {
       count: count
     };
   } catch (error: unknown) {
-    return { success: false, error: getErrorMessage(error, '导出失败') };
+    let diagnostics: { totalEntries: number; failingEntryIds: string[] } | undefined;
+    try {
+      diagnostics = await buildExportDiagnostics();
+    } catch {
+      diagnostics = undefined;
+    }
+
+    if (diagnostics && diagnostics.failingEntryIds.length > 0) {
+      console.error('[EXPORT_DIAGNOSTICS] export failed with decrypt errors', JSON.stringify(diagnostics));
+    }
+
+    return {
+      success: false,
+      error: getErrorMessage(error, '导出失败'),
+      diagnostics,
+    };
   }
 });
 
@@ -828,61 +1002,3 @@ ipcMain.handle('import-data', async (_, importPassword: string, mergeMode: 'skip
   }
 });
 
-// 1Password 导入处理
-ipcMain.handle('import-from-1password', async () => {
-  ensureUnlocked();
-
-  try {
-    const database = requireDatabase();
-
-    // 选择要导入的文件
-    const result = await dialog.showOpenDialog(mainWindow!, {
-      title: '选择 1Password 导出文件',
-      filters: [
-        { name: '1Password 1PUX', extensions: ['1pux'] },
-        { name: '1Password CSV', extensions: ['csv'] },
-        { name: '1Password 1PIF', extensions: ['1pif'] },
-        { name: '所有文件', extensions: ['*'] }
-      ],
-      properties: ['openFile']
-    });
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return { success: false, canceled: true };
-    }
-
-    const filePath = result.filePaths[0];
-    const ext = path.extname(filePath).toLowerCase();
-
-    // 根据文件格式解析
-    let entries: OnePasswordEntry[] = [];
-    if (ext === '.1pux') {
-      entries = await parseOnePassword1PUX(filePath);
-    } else {
-      const fileContent = fs.readFileSync(filePath, 'utf-8');
-
-      if (ext === '.csv') {
-        entries = parseOnePasswordCSV(fileContent);
-      } else if (ext === '.1pif') {
-        entries = parseOnePassword1PIF(fileContent);
-      } else {
-        return { success: false, error: '不支持的文件格式，请使用 1PUX、CSV 或 1PIF 格式' };
-      }
-    }
-
-    if (entries.length === 0) {
-      return { success: false, error: '文件中没有找到有效的密码数据' };
-    }
-
-    // 导入数据
-    const importResult = database.importPasswords(entries, 'skip');
-
-    return {
-      success: true,
-      ...importResult,
-      filename: path.basename(filePath)
-    };
-  } catch (error: unknown) {
-    return { success: false, error: getErrorMessage(error, '导入失败') };
-  }
-});

@@ -1,18 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 interface PasswordItem {
-  id: number;
+  id: string;
   title: string;
   username: string;
   url?: string;
+  urls?: string[];
   category?: string;
   favorite?: boolean;
 }
 
 interface Props {
   passwords: PasswordItem[];
-  selectedId: number | null;
-  onSelect: (id: number) => void;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
 }
 
 function getItemToken(title: string): string {
@@ -35,13 +36,13 @@ function getItemToken(title: string): string {
 }
 
 const PasswordList: React.FC<Props> = ({ passwords, selectedId, onSelect }) => {
-  const [faviconMap, setFaviconMap] = useState<Record<number, string | null>>({});
-  const [failedFaviconMap, setFailedFaviconMap] = useState<Record<number, boolean>>({});
-  const urlSnapshotRef = useRef<Record<number, string>>({});
+  const [faviconMap, setFaviconMap] = useState<Record<string, string | null>>({});
+  const [failedFaviconMap, setFailedFaviconMap] = useState<Record<string, boolean>>({});
+  const urlSnapshotRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
-    const nextSnapshot: Record<number, string> = {};
-    const staleIds = new Set<number>();
+    const nextSnapshot: Record<string, string> = {};
+    const staleIds = new Set<string>();
 
     for (const password of passwords) {
       const normalizedUrl = (password.url || '').trim();
@@ -53,9 +54,8 @@ const PasswordList: React.FC<Props> = ({ passwords, selectedId, onSelect }) => {
     }
 
     for (const existingId of Object.keys(urlSnapshotRef.current)) {
-      const id = Number(existingId);
-      if (!passwords.some(password => password.id === id)) {
-        staleIds.add(id);
+      if (!passwords.some(password => password.id === existingId)) {
+        staleIds.add(existingId);
       }
     }
 
@@ -106,7 +106,7 @@ const PasswordList: React.FC<Props> = ({ passwords, selectedId, onSelect }) => {
         }
       });
 
-      const results = (await Promise.all(tasks)).filter(Boolean) as Array<readonly [number, string | null]>;
+      const results = (await Promise.all(tasks)).filter(Boolean) as Array<readonly [string, string | null]>;
       if (!results.length || disposed) {
         return;
       }

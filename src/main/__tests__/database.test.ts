@@ -354,6 +354,81 @@ describe('Database', () => {
     });
   });
 
+  describe('recoverPasswordSecretFromBackup', () => {
+    test('从迁移备份库恢复旧密码并回写当前库', () => {
+      const currentId = db.addPassword({
+        title: 'Broken Legacy Entry',
+        username: 'legacy@example.com',
+        password: 'current-secret',
+      });
+
+      const brokenCiphertext = 'enc:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+      db.updatePasswordCiphertext(currentId, { password: brokenCiphertext });
+
+      const backupPath = path.join(__dirname, 'test-passwords.backup.db');
+      if (fs.existsSync(backupPath)) {
+        fs.unlinkSync(backupPath);
+      }
+
+      const backupDb = new DatabaseLib(backupPath);
+      backupDb.exec(`
+        CREATE TABLE IF NOT EXISTS passwords (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          username TEXT NOT NULL,
+          password TEXT NOT NULL,
+          url TEXT,
+          notes TEXT,
+          category TEXT DEFAULT 'Default',
+          tags TEXT,
+          createdAt INTEGER DEFAULT (strftime('%s', 'now')),
+          updatedAt INTEGER DEFAULT (strftime('%s', 'now')),
+          favorite INTEGER DEFAULT 0
+        )
+      `);
+      backupDb.prepare(`
+        INSERT INTO passwords (id, title, username, password)
+        VALUES (?, ?, ?, ?)
+      `).run(currentId, 'Broken Legacy Entry', 'legacy@example.com', 'legacy-secret');
+      backupDb.close();
+
+      db.setSetting('crypto.migration.passwords.v1.backupPath', backupPath);
+
+      expect(() => db.getPasswordSecret(currentId)).toThrow('authenticate data');
+      expect(db.recoverPasswordSecretFromBackup(currentId)).toBe('legacy-secret');
+      expect(db.getPasswordSecret(currentId)).toBe('legacy-secret');
+
+      if (fs.existsSync(backupPath)) {
+        fs.unlinkSync(backupPath);
+      }
+    });
+  });
+
+  describe('scanPasswordDecryptFailures', () => {
+    test('只读返回当前 DEK 下无法解密的记录', () => {
+      const healthyId = db.addPassword({
+        title: 'Healthy Entry',
+        username: 'healthy@example.com',
+        password: 'healthy-secret',
+      });
+      const brokenId = db.addPassword({
+        title: 'Broken Entry',
+        username: 'broken@example.com',
+        password: 'broken-secret',
+      });
+
+      const brokenCiphertext = 'enc:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+      db.updatePasswordCiphertext(brokenId, { password: brokenCiphertext });
+
+      expect(db.scanPasswordDecryptFailures()).toEqual({
+        totalEntries: 2,
+        failingEntryIds: [String(brokenId)],
+      });
+      expect(db.getPasswordSecret(healthyId)).toBe('healthy-secret');
+      expect(() => db.getPasswordSecret(brokenId)).toThrow('authenticate data');
+    });
+  });
+
   describe('bootstrap categories', () => {
     test('初始化时回填旧数据中的分类并规范化保留值', () => {
       const legacyPath = path.join(__dirname, 'legacy-passwords.db');

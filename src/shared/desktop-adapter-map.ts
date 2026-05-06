@@ -26,6 +26,35 @@ export const LOCK_SECRET_DIGEST_KEY = 'lock.secretDigest.v1';
 const LOCK_SECRET_TOKEN_KEY = 'lock.secretTokenWrapped.v1';
 export const DEVICE_KEY_UNAVAILABLE_ERROR = '设备密钥不可用，请重置锁屏密码';
 
+// Map VaultService data key setting to the desktop database's key so both use the same DEK.
+const VAULT_DATA_KEY_KEY = 'vault.dataKeyWrapped.v1';
+const DESKTOP_DATA_KEY_KEY = 'crypto.dek.wrapped.v1';
+const VAULT_LOCK_PASSWORD_HASH_KEY = 'lock.passwordHash.v1';
+const DESKTOP_LOCK_PASSWORD_HASH_KEY = 'lock.passwordHash';
+const VAULT_LOCK_PASSWORD_SALT_KEY = 'lock.passwordSalt.v1';
+const DESKTOP_LOCK_PASSWORD_SALT_KEY = 'lock.passwordSalt';
+const VAULT_LOCK_AUTO_ENABLED_KEY = 'lock.autoEnabled.v1';
+const DESKTOP_LOCK_AUTO_ENABLED_KEY = 'lock.autoEnabled';
+const VAULT_LOCK_IDLE_TIMEOUT_SEC_KEY = 'lock.idleTimeoutSec.v1';
+const DESKTOP_LOCK_IDLE_TIMEOUT_SEC_KEY = 'lock.idleTimeoutSec';
+
+function resolveDesktopSettingKey(key: string): string {
+  switch (key) {
+    case VAULT_DATA_KEY_KEY:
+      return DESKTOP_DATA_KEY_KEY;
+    case VAULT_LOCK_PASSWORD_HASH_KEY:
+      return DESKTOP_LOCK_PASSWORD_HASH_KEY;
+    case VAULT_LOCK_PASSWORD_SALT_KEY:
+      return DESKTOP_LOCK_PASSWORD_SALT_KEY;
+    case VAULT_LOCK_AUTO_ENABLED_KEY:
+      return DESKTOP_LOCK_AUTO_ENABLED_KEY;
+    case VAULT_LOCK_IDLE_TIMEOUT_SEC_KEY:
+      return DESKTOP_LOCK_IDLE_TIMEOUT_SEC_KEY;
+    default:
+      return key;
+  }
+}
+
 export interface LockSecretSettingsStore {
   getSetting(key: string): Promise<string | null> | string | null;
   setSetting(key: string, value: string | null): Promise<void> | void;
@@ -109,17 +138,16 @@ export class DesktopStorageAdapter implements StorageAdapter {
   constructor(private readonly database: Database) {}
 
   async listEntries(): Promise<VaultEntry[]> {
-    // TODO: Database currently doesn't expose a raw ciphertext list API.
-    // This maps exported rows to VaultEntry until database.listRawEntries() exists.
-    return this.database.exportAllData().map(toVaultEntry);
+    const rows = this.database.getAllPasswordCiphertexts();
+    return rows.map(toVaultEntry);
   }
 
   async getEntryById(id: EntryId): Promise<VaultEntry | null> {
-    const row = this.database.getPasswordById(toNumericId(id));
+    const row = this.database.getPasswordCiphertextById(toNumericId(id));
     return row ? toVaultEntry(row) : null;
   }
 
-  async insertEntry(entry: VaultEntry): Promise<void> {
+  async insertEntry(entry: VaultEntry): Promise<EntryId> {
     // 如果密码字段是 JSON 格式，需要转换为桌面格式
     let desktopPasswordFormat: string;
     try {
@@ -137,7 +165,8 @@ export class DesktopStorageAdapter implements StorageAdapter {
       desktopPasswordFormat = entry.passwordCiphertext;
     }
 
-    this.database.addPassword({
+    // Database returns the auto-incremented rowid -- use this as the actual EntryId
+    const numericId = this.database.addPasswordCiphertext({
       title: entry.title,
       username: entry.username,
       // TODO: this expects plaintext today; switch when raw-cipher insert is supported.
@@ -148,6 +177,7 @@ export class DesktopStorageAdapter implements StorageAdapter {
       tags: entry.tags,
       favorite: entry.favorite,
     });
+    return String(numericId) as EntryId;
   }
 
   async updateEntry(id: EntryId, patch: Partial<VaultEntry>): Promise<void> {
@@ -170,7 +200,7 @@ export class DesktopStorageAdapter implements StorageAdapter {
       }
     }
 
-    this.database.updatePassword(toNumericId(id), {
+    this.database.updatePasswordCiphertext(toNumericId(id), {
       title: patch.title,
       username: patch.username,
       // TODO: this expects plaintext today; switch when raw-cipher update is supported.
@@ -212,15 +242,15 @@ export class DesktopStorageAdapter implements StorageAdapter {
   }
 
   async getSetting(key: string): Promise<string | null> {
-    return this.database.getSetting(key);
+    return this.database.getSetting(resolveDesktopSettingKey(key));
   }
 
   async setSetting(key: string, value: string): Promise<void> {
-    this.database.setSetting(key, value);
+    this.database.setSetting(resolveDesktopSettingKey(key), value);
   }
 
   async deleteSetting(key: string): Promise<void> {
-    this.database.setSetting(key, null);
+    this.database.setSetting(resolveDesktopSettingKey(key), null);
   }
 }
 

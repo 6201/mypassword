@@ -4,6 +4,30 @@ interface Props {
   onClose: () => void;
 }
 
+interface ExportDiagnostics {
+  totalEntries: number;
+  failingEntryIds: string[];
+}
+
+interface ExportResultPayload {
+  success: boolean;
+  canceled?: boolean;
+  filePath?: string;
+  count?: number;
+  error?: string;
+  diagnostics?: ExportDiagnostics;
+}
+
+function buildExportFailureMessage(result: ExportResultPayload): string {
+  const baseMessage = result.error || '导出失败';
+  const diagnostics = result.diagnostics;
+  if (!diagnostics || diagnostics.failingEntryIds.length === 0) {
+    return baseMessage;
+  }
+
+  return `${baseMessage}（共 ${diagnostics.totalEntries} 条，解密失败 ID：${diagnostics.failingEntryIds.join(', ')}）`;
+}
+
 const ExportImportModal: React.FC<Props> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<'export' | 'import' | '1password'>('export');
 
@@ -49,7 +73,7 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
     setExportResult(null);
 
     try {
-      const result = await window.electronAPI.exportData(exportPassword);
+      const result = await window.electronAPI.exportData(exportPassword) as ExportResultPayload;
 
       if (result.canceled) {
         setExportResult({ success: false, message: '已取消导出' });
@@ -59,7 +83,7 @@ const ExportImportModal: React.FC<Props> = ({ onClose }) => {
           message: `成功导出 ${result.count} 条密码到 ${result.filePath}`
         });
       } else {
-        setExportResult({ success: false, message: result.error || '导出失败' });
+        setExportResult({ success: false, message: buildExportFailureMessage(result) });
       }
     } catch (error: any) {
       setExportResult({ success: false, message: error.message });

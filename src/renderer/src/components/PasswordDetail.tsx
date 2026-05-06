@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 
 interface PasswordRecord {
-  id: number;
+  id: string;
   title: string;
   username: string;
   password?: string;
   url?: string;
+  urls?: string[];
   notes?: string;
   category?: string;
   tags?: string;
@@ -16,8 +17,8 @@ interface PasswordRecord {
 interface Props {
   password: PasswordRecord | null;
   onEdit: (password: PasswordRecord) => void;
-  onDelete: (id: number) => void;
-  onRequestPassword: (id: number) => Promise<string>;
+  onDelete: (id: string) => void;
+  onRequestPassword: (id: string) => Promise<string>;
 }
 
 type CopiedField = 'username' | 'password' | null;

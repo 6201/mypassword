@@ -1,3 +1,5 @@
+import { buildPasswordResetEditData, shouldOpenPasswordResetForm } from './edit-recovery';
+import { buildBackupSettingsFormState, validateBackupSettingsForm, type BackupSettings } from './backup-settings-ui';
 import React, { useState, useEffect, useRef } from 'react';
 import type { VaultErrorCode } from '@mypassword/shared-core';
 import PasswordList from './components/PasswordList';
@@ -9,11 +11,12 @@ import ExportImportModal from './components/ExportImportModal';
 import PasswordDetail from './components/PasswordDetail';
 
 interface PasswordRecord {
-  id: number;
+  id: string;
   title: string;
   username: string;
   password?: string;
   url?: string;
+  urls?: string[];
   notes?: string;
   category?: string;
   tags?: string;
@@ -48,17 +51,20 @@ declare global {
       lockNow: () => Promise<LockStatus>;
       lockUnlock: (password: string) => Promise<LockUnlockResult>;
       getPasswords: () => Promise<PasswordRecord[]>;
-      getPasswordSecret: (id: number) => Promise<string>;
+      getPasswordSecret: (id: string) => Promise<string>;
       getCategories: () => Promise<string[]>;
       addCategory: (name: string) => Promise<void>;
       renameCategory: (oldName: string, newName: string) => Promise<void>;
       deleteCategory: (name: string) => Promise<{ movedCount: number }>;
-      addPassword: (entry: any) => Promise<number>;
-      updatePassword: (id: number, entry: any) => Promise<void>;
-      deletePassword: (id: number) => Promise<void>;
+      addPassword: (entry: any) => Promise<string>;
+      updatePassword: (id: string, entry: any) => Promise<void>;
+      deletePassword: (id: string) => Promise<void>;
       generatePassword: (options: any) => Promise<string>;
       searchPasswords: (query: string) => Promise<any[]>;
       resolveFavicon: (url: string) => Promise<string | null>;
+      getBackupSettings: () => Promise<BackupSettings>;
+      setBackupSettings: (payload: Partial<BackupSettings>) => Promise<BackupSettings>;
+      pickBackupDirectory: () => Promise<{ canceled: boolean; directory?: string }>;
       exportData: (exportPassword: string) => Promise<any>;
       importData: (importPassword: string, mergeMode: 'skip' | 'overwrite' | 'rename') => Promise<any>;
       importFrom1Password: () => Promise<any>;
@@ -77,6 +83,15 @@ const IDLE_TIMEOUT_OPTIONS = [
   { label: '15 分钟', value: 900 },
   { label: '30 分钟', value: 1800 },
   { label: '60 分钟', value: 3600 }
+];
+
+const BACKUP_INTERVAL_OPTIONS = [
+  { label: '5 分钟', value: 300000 },
+  { label: '15 分钟', value: 900000 },
+  { label: '30 分钟', value: 1800000 },
+  { label: '1 小时', value: 3600000 },
+  { label: '6 小时', value: 21600000 },
+  { label: '24 小时', value: 86400000 }
 ];
 
 type CategoryDialogMode = 'add' | 'rename';
@@ -119,10 +134,10 @@ const App: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
   const [showExportImport, setShowExportImport] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editingFormData, setEditingFormData] = useState<PasswordFormEditData | null>(null);
   const [isEditSecretLoading, setIsEditSecretLoading] = useState(false);
-  const [selectedPasswordId, setSelectedPasswordId] = useState<number | null>(null);
+  const [selectedPasswordId, setSelectedPasswordId] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([DEFAULT_CATEGORY]);
   const [categoryDialogMode, setCategoryDialogMode] = useState<CategoryDialogMode | null>(null);
   const [categoryInput, setCategoryInput] = useState('');
@@ -142,9 +157,18 @@ const App: React.FC = () => {
   const [lockAutoEnabled, setLockAutoEnabled] = useState(false);
   const [lockIdleTimeoutSec, setLockIdleTimeoutSec] = useState(DEFAULT_IDLE_TIMEOUT_SEC);
   const [lockSettingsError, setLockSettingsError] = useState('');
+  const [backupSettings, setBackupSettings] = useState<ReturnType<typeof buildBackupSettingsFormState>>({
+    enabled: false,
+    intervalMs: 300000,
+    directory: '',
+    password: '',
+    confirmPassword: '',
+    retentionCount: 5,
+  });
+  const [backupSettingsError, setBackupSettingsError] = useState('');
   const [unlockPassword, setUnlockPassword] = useState('');
   const [unlockError, setUnlockError] = useState('');
-  const [passwordSecretCache, setPasswordSecretCache] = useState<Record<number, string>>({});
+  const [passwordSecretCache, setPasswordSecretCache] = useState<Record<string, string>>({});
 
   const lastActivityAtRef = useRef<number>(Date.now());
 
@@ -202,23 +226,50 @@ const App: React.FC = () => {
     return nextStatus;
   };
 
-  const loadData = async (): Promise<void> => {
-    const [passwordData, categoryData] = await Promise.all([
-      window.electronAPI.getPasswords(),
-      window.electronAPI.getCategories()
-    ]);
-
-    const normalizedPasswords = (passwordData || []).map(password => ({
-      ...password,
-      favorite: Boolean(password.favorite)
-    }));
-
-    setPasswords(normalizedPasswords);
-    setPasswordSecretCache({});
-    setCategories(normalizeCategories(categoryData || []));
+  const openLockSettings = async (): Promise<void> => {
+    setLockSettingsError('');
+    setBackupSettingsError('');
+    setLockCurrentPassword('');
+    setLockNewPassword('');
+    setLockConfirmPassword('');
+    const nextBackupSettings = await window.electronAPI.getBackupSettings();
+    setBackupSettings(buildBackupSettingsFormState(nextBackupSettings));
+    setShowLockSettings(true);
   };
 
-  const getPasswordSecret = async (id: number): Promise<string> => {
+  const closeLockSettings = () => {
+    setShowLockSettings(false);
+    setLockSettingsError('');
+    setBackupSettingsError('');
+    setLockCurrentPassword('');
+    setLockNewPassword('');
+    setLockConfirmPassword('');
+  };
+
+  const loadData = async (): Promise<void> => {
+    try {
+      console.log('[DEBUG] loadData: fetching passwords and categories...');
+      const [passwordData, categoryData] = await Promise.all([
+        window.electronAPI.getPasswords(),
+        window.electronAPI.getCategories()
+      ]);
+      console.log('[DEBUG] loadData: got', passwordData?.length ?? 'undefined', 'passwords,', categoryData?.length ?? 'undefined', 'categories');
+
+      const normalizedPasswords = (passwordData || []).map(password => ({
+        ...password,
+        favorite: Boolean(password.favorite)
+      }));
+
+      setPasswords(normalizedPasswords);
+      setPasswordSecretCache({});
+      setCategories(normalizeCategories(categoryData || []));
+    } catch (err) {
+      console.error('[DEBUG] loadData error:', err);
+    }
+  };
+
+
+  const getPasswordSecret = async (id: string): Promise<string> => {
     if (Object.prototype.hasOwnProperty.call(passwordSecretCache, id)) {
       return passwordSecretCache[id];
     }
@@ -320,7 +371,7 @@ const App: React.FC = () => {
     await loadData();
   };
 
-  const handleDeletePassword = async (id: number): Promise<void> => {
+  const handleDeletePassword = async (id: string): Promise<void> => {
     if (!confirm('确定要删除这个密码吗？')) {
       return;
     }
@@ -361,6 +412,13 @@ const App: React.FC = () => {
         applyFormData(secret);
       })
       .catch(error => {
+        if (shouldOpenPasswordResetForm(error)) {
+          setEditingFormData(buildPasswordResetEditData(selected));
+          setIsEditSecretLoading(false);
+          setShowForm(true);
+          return;
+        }
+
         setIsEditSecretLoading(false);
         setShowForm(false);
         setEditingId(null);
@@ -464,21 +522,6 @@ const App: React.FC = () => {
     }
   };
 
-  const openLockSettings = (): void => {
-    setLockCurrentPassword('');
-    setLockNewPassword('');
-    setLockConfirmPassword('');
-    setLockSettingsError('');
-    setLockAutoEnabled(lockStatus.autoEnabled);
-    setLockIdleTimeoutSec(lockStatus.idleTimeoutSec);
-    setShowLockSettings(true);
-  };
-
-  const closeLockSettings = (): void => {
-    setShowLockSettings(false);
-    setLockSettingsError('');
-  };
-
   const handleSaveLockSettings: React.ComponentProps<'form'>['onSubmit'] = async event => {
     event.preventDefault();
 
@@ -508,12 +551,37 @@ const App: React.FC = () => {
         idleTimeoutSec: lockIdleTimeoutSec
       });
 
+      const backupValidationError = validateBackupSettingsForm(backupSettings);
+      if (backupValidationError) {
+        setBackupSettingsError(backupValidationError);
+        return;
+      }
+
+      await window.electronAPI.setBackupSettings({
+        enabled: backupSettings.enabled,
+        intervalMs: backupSettings.intervalMs,
+        directory: backupSettings.directory,
+        password: backupSettings.password,
+        retentionCount: backupSettings.retentionCount,
+      });
+
       await loadLockStatus();
       lastActivityAtRef.current = Date.now();
       closeLockSettings();
+
     } catch (error: unknown) {
       setLockSettingsError(getErrorMessage(error, '保存安全设置失败'));
     }
+  };
+
+  const handlePickBackupDirectory = async (): Promise<void> => {
+    const result = await window.electronAPI.pickBackupDirectory();
+    if (result.canceled || !result.directory) {
+      return;
+    }
+
+    setBackupSettings(prev => ({ ...prev, directory: result.directory || prev.directory }));
+    setBackupSettingsError('');
   };
 
   const handleLockNow = async (): Promise<void> => {
@@ -832,6 +900,89 @@ const App: React.FC = () => {
                 </select>
               </div>
 
+              <div className="rounded-lg border border-gray-200 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900">定期备份</h4>
+                    <p className="text-xs text-gray-500 mt-1">按计划导出加密备份并保留最近几份</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={backupSettings.enabled}
+                    onChange={event => setBackupSettings(prev => ({ ...prev, enabled: event.target.checked }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">备份频率</label>
+                  <select
+                    value={backupSettings.intervalMs}
+                    onChange={event => setBackupSettings(prev => ({ ...prev, intervalMs: Number(event.target.value) }))}
+                    className="input-base"
+                  >
+                    {BACKUP_INTERVAL_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">备份目录</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={backupSettings.directory}
+                      onChange={event => setBackupSettings(prev => ({ ...prev, directory: event.target.value }))}
+                      className="input-base flex-1"
+                      placeholder="例如：C:/backups"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePickBackupDirectory}
+                      className="btn-secondary whitespace-nowrap"
+                    >
+                      选择目录
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">备份密码</label>
+                  <input
+                    type="password"
+                    value={backupSettings.password}
+                    onChange={event => setBackupSettings(prev => ({ ...prev, password: event.target.value }))}
+                    className="input-base"
+                    placeholder="用于加密自动备份文件"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">确认备份密码</label>
+                  <input
+                    type="password"
+                    value={backupSettings.confirmPassword}
+                    onChange={event => setBackupSettings(prev => ({ ...prev, confirmPassword: event.target.value }))}
+                    className="input-base"
+                    placeholder="再次输入备份密码"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">保留份数</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={backupSettings.retentionCount}
+                    onChange={event => setBackupSettings(prev => ({ ...prev, retentionCount: Number(event.target.value) || 1 }))}
+                    className="input-base"
+                  />
+                </div>
+
+                {backupSettingsError && (
+                  <p className="text-xs text-red-600">{backupSettingsError}</p>
+                )}
+              </div>
               {lockSettingsError && (
                 <p className="text-xs text-red-600">{lockSettingsError}</p>
               )}
