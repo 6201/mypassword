@@ -535,6 +535,33 @@ function getErrorMessage(error: unknown, fallbackMessage: string): string {
   return fallbackMessage;
 }
 
+export async function runExportDataFlow(
+  exportPassword: string,
+  deps: {
+    exportVault(password: string): Promise<Uint8Array>;
+    reclassifyDecryptFailingDefaultEntries(targetCategory: string): number;
+    showSaveDialog(): Promise<{ canceled: boolean; filePath?: string }>;
+    writeFile(filePath: string, data: Uint8Array): void;
+    getEntryCount(): number;
+  }
+): Promise<{ success: boolean; canceled?: boolean; filePath?: string; count?: number }> {
+  const result = await deps.showSaveDialog();
+
+  if (result.canceled || !result.filePath) {
+    return { success: false, canceled: true };
+  }
+
+  deps.reclassifyDecryptFailingDefaultEntries('Error');
+  const encryptedData = await deps.exportVault(exportPassword);
+  deps.writeFile(result.filePath, encryptedData);
+
+  return {
+    success: true,
+    filePath: result.filePath,
+    count: deps.getEntryCount(),
+  };
+}
+
 async function buildExportDiagnostics(): Promise<{ totalEntries: number; failingEntryIds: string[] }> {
   const svc = requireVaultService();
   const summaries = await svc.listSummaries();
@@ -907,43 +934,29 @@ ipcMain.handle('export-data', async (_, exportPassword: string) => {
 
   try {
     const vaultSvc = requireVaultService();
+    const database = requireDatabase();
 
-    // 使用 core 库的导出功能
-    const encryptedData = await vaultSvc.exportVault(exportPassword);
-
-    // 选择保存位置
-    const result = await dialog.showSaveDialog(mainWindow!, {
-      title: '保存备份文件',
-      defaultPath: `mypassword-backup-${new Date().toISOString().slice(0, 10)}-${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')}.enc`,
-      filters: [{ name: 'MyPassword 备份', extensions: ['enc'] }],
-      properties: ['createDirectory', 'showOverwriteConfirmation']
+    return await runExportDataFlow(exportPassword, {
+      exportVault: (password: string) => vaultSvc.exportVault(password),
+      reclassifyDecryptFailingDefaultEntries: (targetCategory: string) => database.reclassifyDecryptFailingDefaultEntries(targetCategory),
+      showSaveDialog: () => dialog.showSaveDialog(mainWindow!, {
+        title: '保存备份文件',
+        defaultPath: `mypassword-backup-${new Date().toISOString().slice(0, 10)}-${new Date().toTimeString().slice(0, 8).replace(/:/g, '-')}.enc`,
+        filters: [{ name: 'MyPassword 备份', extensions: ['enc'] }],
+        properties: ['createDirectory', 'showOverwriteConfirmation']
+      }).then(result => ({ canceled: result.canceled, filePath: result.filePath })),
+      writeFile: (filePath: string, data: Uint8Array) => {
+        fs.writeFileSync(filePath, Buffer.from(data));
+      },
+      getEntryCount: () => {
+        try {
+          const entries = database.exportAllData();
+          return entries.length;
+        } catch {
+          return 0;
+        }
+      },
     });
-
-    if (result.canceled || !result.filePath) {
-      return { success: false, canceled: true };
-    }
-
-    // 写入文件
-    fs.writeFileSync(result.filePath, Buffer.from(encryptedData));
-
-    // 获取导出的条目数（需要从导出数据中解析）
-    let count = 0;
-    try {
-      // Since the export is encrypted, we can't determine the exact count without decrypting
-      // For now, we'll get the count from the database
-      const database = requireDatabase();
-      const entries = database.exportAllData();
-      count = entries.length;
-    } catch (err) {
-      // If we can't get the count from the DB, we'll set it to 0
-      count = 0;
-    }
-
-    return {
-      success: true,
-      filePath: result.filePath,
-      count: count
-    };
   } catch (error: unknown) {
     let diagnostics: { totalEntries: number; failingEntryIds: string[] } | undefined;
     try {
@@ -963,6 +976,7 @@ ipcMain.handle('export-data', async (_, exportPassword: string) => {
     };
   }
 });
+
 
 // 导入数据处理
 ipcMain.handle('import-data', async (_, importPassword: string, mergeMode: 'skip' | 'overwrite' | 'rename') => {

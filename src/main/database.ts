@@ -431,33 +431,6 @@ export class Database {
       }
 
       if (!row) {
-        const usernameMatches = backupDb.prepare(`
-          SELECT id, title, username, url
-          FROM passwords
-          WHERE username = ?
-          ORDER BY id DESC
-          LIMIT 5
-        `).all(currentRow.username) as Array<{ id: number; title: string; username: string; url?: string | null }>;
-
-        const titleMatches = backupDb.prepare(`
-          SELECT id, title, username, url
-          FROM passwords
-          WHERE title = ?
-          ORDER BY id DESC
-          LIMIT 5
-        `).all(currentRow.title) as Array<{ id: number; title: string; username: string; url?: string | null }>;
-
-        console.warn('[PASSWORD_RECOVERY] backup lookup candidates', {
-          id,
-          current: {
-            title: currentRow.title,
-            username: currentRow.username,
-            url: currentRow.url ?? null,
-          },
-          usernameMatches,
-          titleMatches,
-        });
-
         return null;
       }
 
@@ -493,6 +466,47 @@ export class Database {
       totalEntries: rows.length,
       failingEntryIds,
     };
+  }
+
+  reclassifyDecryptFailingDefaultEntries(targetCategory: string): number {
+    const normalizedTargetCategory = this.normalizeCategoryName(targetCategory);
+    this.ensureCategoryExists(normalizedTargetCategory);
+
+    const rows = this.getAllPasswordCiphertexts();
+    const failingDefaultIds: number[] = [];
+
+    for (const row of rows) {
+      try {
+        this.decryptAtRestPassword(row.password);
+      } catch {
+        const currentCategory = this.normalizePasswordCategory(row.category);
+        if (
+          row.id !== undefined
+          && currentCategory.toLowerCase() === DEFAULT_CATEGORY.toLowerCase()
+        ) {
+          failingDefaultIds.push(row.id);
+        }
+      }
+    }
+
+    if (failingDefaultIds.length === 0) {
+      return 0;
+    }
+
+    const updateStmt = this.db.prepare(`
+      UPDATE passwords
+      SET category = ?, updatedAt = strftime('%s', 'now')
+      WHERE id = ?
+    `);
+
+    const transaction = this.db.transaction((ids: number[]) => {
+      for (const id of ids) {
+        updateStmt.run(normalizedTargetCategory, id);
+      }
+    });
+
+    transaction(failingDefaultIds);
+    return failingDefaultIds.length;
   }
 
   getPasswordCiphertextById(id: number): PasswordEntry | undefined {

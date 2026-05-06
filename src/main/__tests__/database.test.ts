@@ -15,6 +15,7 @@ jest.mock('electron', () => ({
 describe('Database', () => {
   let db: Database;
   let dbPath: string;
+  let recoveryBackupPath: string | null = null;
 
   beforeEach(() => {
     dbPath = path.join(__dirname, 'test-passwords.db');
@@ -23,10 +24,16 @@ describe('Database', () => {
   });
 
   afterEach(() => {
-    db.close();
+    if (db) {
+      db.close();
+    }
     if (fs.existsSync(dbPath)) {
       fs.unlinkSync(dbPath);
     }
+    if (recoveryBackupPath && fs.existsSync(recoveryBackupPath)) {
+      fs.unlinkSync(recoveryBackupPath);
+    }
+    recoveryBackupPath = null;
   });
 
   test('数据库中密码字段按密文落盘，读取时自动解密', () => {
@@ -365,12 +372,12 @@ describe('Database', () => {
       const brokenCiphertext = 'enc:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
       db.updatePasswordCiphertext(currentId, { password: brokenCiphertext });
 
-      const backupPath = path.join(__dirname, 'test-passwords.backup.db');
-      if (fs.existsSync(backupPath)) {
-        fs.unlinkSync(backupPath);
+      recoveryBackupPath = path.join(__dirname, 'test-passwords.backup.db');
+      if (fs.existsSync(recoveryBackupPath)) {
+        fs.unlinkSync(recoveryBackupPath);
       }
 
-      const backupDb = new DatabaseLib(backupPath);
+      const backupDb = new DatabaseLib(recoveryBackupPath);
       backupDb.exec(`
         CREATE TABLE IF NOT EXISTS passwords (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -392,14 +399,60 @@ describe('Database', () => {
       `).run(currentId, 'Broken Legacy Entry', 'legacy@example.com', 'legacy-secret');
       backupDb.close();
 
-      db.setSetting('crypto.migration.passwords.v1.backupPath', backupPath);
+      db.setSetting('crypto.migration.passwords.v1.backupPath', recoveryBackupPath);
 
       expect(() => db.getPasswordSecret(currentId)).toThrow('authenticate data');
       expect(db.recoverPasswordSecretFromBackup(currentId)).toBe('legacy-secret');
       expect(db.getPasswordSecret(currentId)).toBe('legacy-secret');
+    });
 
-      if (fs.existsSync(backupPath)) {
-        fs.unlinkSync(backupPath);
+    test('未命中备份时不记录敏感匹配内容', () => {
+      const currentId = db.addPassword({
+        title: 'Sensitive Title',
+        username: 'sensitive-user@example.com',
+        password: 'current-secret',
+        url: 'https://sensitive.example.com',
+      });
+
+      db.updatePasswordCiphertext(currentId, {
+        password: 'enc:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      });
+
+      recoveryBackupPath = path.join(__dirname, 'test-passwords.miss.backup.db');
+      if (fs.existsSync(recoveryBackupPath)) {
+        fs.unlinkSync(recoveryBackupPath);
+      }
+
+      const backupDb = new DatabaseLib(recoveryBackupPath);
+      backupDb.exec(`
+        CREATE TABLE IF NOT EXISTS passwords (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          username TEXT NOT NULL,
+          password TEXT NOT NULL,
+          url TEXT,
+          notes TEXT,
+          category TEXT DEFAULT 'Default',
+          tags TEXT,
+          createdAt INTEGER DEFAULT (strftime('%s', 'now')),
+          updatedAt INTEGER DEFAULT (strftime('%s', 'now')),
+          favorite INTEGER DEFAULT 0
+        )
+      `);
+      backupDb.prepare(`
+        INSERT INTO passwords (title, username, password, url)
+        VALUES (?, ?, ?, ?)
+      `).run('Other Title', 'other-user@example.com', 'legacy-secret', 'https://other.example.com');
+      backupDb.close();
+
+      db.setSetting('crypto.migration.passwords.v1.backupPath', recoveryBackupPath);
+
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      try {
+        expect(db.recoverPasswordSecretFromBackup(currentId)).toBeNull();
+        expect(warnSpy).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
       }
     });
   });
@@ -426,6 +479,59 @@ describe('Database', () => {
       });
       expect(db.getPasswordSecret(healthyId)).toBe('healthy-secret');
       expect(() => db.getPasswordSecret(brokenId)).toThrow('authenticate data');
+    });
+  });
+
+  describe('reclassifyDecryptFailingDefaultEntries', () => {
+    test('moves only broken Default entries to Error', () => {
+      const healthyId = db.addPassword({
+        title: 'Healthy Default',
+        username: 'healthy@example.com',
+        password: 'healthy-secret',
+        category: 'Default',
+      });
+      const brokenDefaultId = db.addPassword({
+        title: 'Broken Default',
+        username: 'broken-default@example.com',
+        password: 'broken-default-secret',
+        category: 'Default',
+      });
+      const brokenWorkId = db.addPassword({
+        title: 'Broken Work',
+        username: 'broken-work@example.com',
+        password: 'broken-work-secret',
+        category: 'Work',
+      });
+
+      db.updatePasswordCiphertext(brokenDefaultId, {
+        password: 'enc:v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      });
+      db.updatePasswordCiphertext(brokenWorkId, {
+        password: 'enc:v1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      });
+
+      const movedCount = db.reclassifyDecryptFailingDefaultEntries('Error');
+
+      expect(movedCount).toBe(1);
+      expect(db.getPasswordById(healthyId)?.category).toBe('Default');
+      expect(db.getPasswordCiphertextById(brokenDefaultId)?.category).toBe('Error');
+      expect(db.getPasswordCiphertextById(brokenWorkId)?.category).toBe('Work');
+      expect(db.getCategories()).toContain('Error');
+    });
+
+    test('is a no-op when no broken Default entries exist', () => {
+      db.addPassword({
+        title: 'Healthy Default',
+        username: 'healthy@example.com',
+        password: 'healthy-secret',
+        category: 'Default',
+      });
+
+      const movedCount = db.reclassifyDecryptFailingDefaultEntries('Error');
+
+      expect(movedCount).toBe(0);
+      expect(db.getCategories()).toContain('Default');
+      expect(db.getCategories()).toContain('Error');
     });
   });
 
